@@ -598,6 +598,13 @@ body {
   </div>
 
   <div class="field">
+    <label>Disposición de estructuras <button class="help-btn" data-help="disposicion-estructuras">?</button></label>
+    <p style="font-size:0.75rem;color:var(--muted);margin:2px 0 6px">Dip direction / Dip — agregar las estructuras con control sobre el evento</p>
+    <div id="estructuras-dip-list"></div>
+    <button type="button" id="add-estructura-dip" style="font-size:0.85rem;padding:8px 14px;background:var(--surface2);border:1px dashed var(--muted);border-radius:8px;color:var(--fg);cursor:pointer;margin-top:4px;width:100%">+ Agregar estructura</button>
+  </div>
+
+  <div class="field">
     <label>Cobertura vegetal <button class="help-btn" data-help="vegetacion">?</button></label>
     <select id="vegetacion">
       <option value="">— Seleccionar —</option>
@@ -979,6 +986,101 @@ function getMorfoValue(id) {
 }
 
 // =====================
+// DISPOSICIÓN DE ESTRUCTURAS
+// =====================
+let orientPermissionGranted = false;
+
+function createEstDipEntry() {
+  const div = document.createElement('div');
+  div.className = 'est-dip-entry';
+  div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
+  div.innerHTML = `
+    <select class="est-tipo" style="flex:1;min-width:110px;padding:9px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+      <option value="">Tipo</option>
+      <option>Foliación</option>
+      <option>Diaclasa</option>
+      <option>Estratificación</option>
+      <option>Falla</option>
+      <option>Contacto litológico</option>
+      <option>Otro</option>
+    </select>
+    <input type="number" class="est-dipdir" min="0" max="360" placeholder="Dir (°N)" style="width:78px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <span style="color:var(--muted);font-size:0.85rem">/</span>
+    <input type="number" class="est-dip" min="0" max="90" placeholder="Dip (°)" style="width:68px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <button type="button" class="btn-capture-orient" title="Capturar con brújula/acelerómetro" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:1rem;min-width:44px">📡</button>
+    <button type="button" class="btn-remove-est" style="padding:9px 11px;border-radius:8px;border:none;background:#fee2e2;color:#e63946;cursor:pointer;font-size:0.9rem;min-width:44px">✕</button>`;
+  div.querySelector('.btn-remove-est').addEventListener('click', () => div.remove());
+  div.querySelector('.btn-capture-orient').addEventListener('click', () => captureOrientation(div));
+  return div;
+}
+
+document.getElementById('add-estructura-dip').addEventListener('click', () => {
+  document.getElementById('estructuras-dip-list').appendChild(createEstDipEntry());
+});
+
+async function captureOrientation(entryDiv) {
+  const btn = entryDiv.querySelector('.btn-capture-orient');
+
+  // iOS requiere permiso explícito
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (!orientPermissionGranted) {
+      try {
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if (perm !== 'granted') {
+          alert('Se necesita permiso de orientación del dispositivo. Ingresa los valores manualmente.');
+          return;
+        }
+        orientPermissionGranted = true;
+      } catch (e) {
+        alert('No se pudo obtener permiso: ' + e.message);
+        return;
+      }
+    }
+  }
+
+  btn.textContent = '⏳';
+  btn.disabled = true;
+
+  // Promedio de 3 lecturas para estabilizar
+  const readings = [];
+  const collectReading = (e) => {
+    if (e.alpha !== null && e.beta !== null) readings.push({ alpha: e.alpha, beta: e.beta });
+    if (readings.length >= 3) {
+      window.removeEventListener('deviceorientation', collectReading);
+      const avgAlpha = Math.round(readings.reduce((s, r) => s + r.alpha, 0) / readings.length);
+      const avgBeta  = Math.round(Math.abs(readings.reduce((s, r) => s + r.beta, 0) / readings.length));
+      entryDiv.querySelector('.est-dipdir').value = (avgAlpha + 360) % 360;
+      entryDiv.querySelector('.est-dip').value = Math.min(avgBeta, 90);
+      btn.textContent = '✓';
+      btn.disabled = false;
+      setTimeout(() => { btn.textContent = '📡'; }, 2500);
+    }
+  };
+
+  window.addEventListener('deviceorientation', collectReading);
+
+  setTimeout(() => {
+    window.removeEventListener('deviceorientation', collectReading);
+    if (btn.textContent === '⏳') {
+      btn.textContent = '📡';
+      btn.disabled = false;
+      alert('No se detectó sensor de orientación. Ingresa los valores manualmente.');
+    }
+  }, 6000);
+}
+
+function getEstDipValues() {
+  return Array.from(document.querySelectorAll('#estructuras-dip-list .est-dip-entry'))
+    .map(div => ({
+      tipo:   div.querySelector('.est-tipo').value,
+      dipDir: div.querySelector('.est-dipdir').value,
+      dip:    div.querySelector('.est-dip').value
+    }))
+    .filter(e => e.tipo || e.dipDir || e.dip);
+}
+
+// =====================
 // FOTOS
 // =====================
 document.getElementById('btn-add-foto').addEventListener('click', () => {
@@ -1268,6 +1370,10 @@ const HELP_TEXTS = {
     title: 'Grado de alteración / meteorización',
     text: 'La escala ISRM (W1–W5) describe el grado de meteorización de la roca: W1 es roca fresca sin cambios visibles; W5 es roca completamente descompuesta que se comporta como suelo. La alteración hidrotermal es distinta: corresponde a cambios químicos por fluidos hidrotermales (agua caliente con minerales), que pueden producir arcillas expansivas (esmectitas) muy inestables, incluso en zonas sin meteorización superficial evidente. Ambas debilitan el macizo rocoso y favorecen los movimientos en masa.'
   },
+  'disposicion-estructuras': {
+    title: 'Disposición de estructuras geológicas',
+    text: 'Registro de dip direction (dirección de buzamiento en °N) y dip (ángulo de buzamiento en °) de estructuras visibles en el escarpe que puedan tener control sobre el movimiento. Puedes agregar varias. Para captura automática (📡): apoyar la parte trasera del teléfono contra el plano de la estructura con la parte superior apuntando en la dirección de máxima pendiente (hacia abajo), y presionar 📡. El sensor promedia 3 lecturas del acelerómetro y brújula — alejarse de objetos metálicos para evitar interferencias. Siempre verificar el dato obtenido con la brújula de campo.'
+  },
   orientacion: {
     title: 'Orientación del escarpe',
     text: 'Dirección hacia donde "mira" el escarpe, en grados desde el Norte (0°=Norte, 90°=Este, 180°=Sur, 270°=Oeste). Indica la orientación de la cara del talud que colapsó.'
@@ -1438,6 +1544,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Alteración / meteorización', data['grado-alteracion'])}
   ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
   ${row('Estructuras', data.estructuras?.join(', '))}
+  ${(data['estructuras-dip'] || []).map(e => row(`↗ ${e.tipo || 'Estructura'}`, `${e.dipDir || '?'}°N / ${e.dip || '?'}°`)).join('')}
   ${row('Vegetación', data.vegetacion)}
 </table>
 <h3 style="color:#555;margin-top:12px">🌧️ Condiciones previas</h3>
@@ -1648,6 +1755,7 @@ async function generateKMZ() {
       'grado-alteracion': document.getElementById('grado-alteracion').value,
       orientacion: document.getElementById('orientacion').value,
       estructuras: getChipsValues('estructuras-chips'),
+      'estructuras-dip': getEstDipValues(),
       vegetacion: document.getElementById('vegetacion').value,
       'lluvia-previa': document.getElementById('lluvia-previa').value,
       'sismo-previo': document.getElementById('sismo-previo').value,
