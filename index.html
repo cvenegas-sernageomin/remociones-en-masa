@@ -327,6 +327,34 @@ body {
     <input type="file" id="input-geotiff" accept=".tif,.tiff" style="display:none">
   </div>
   <div class="field">
+    <label>Región</label>
+    <select id="region">
+      <option value="">— Seleccionar —</option>
+      <option>Arica y Parinacota (XV)</option>
+      <option>Tarapacá (I)</option>
+      <option>Antofagasta (II)</option>
+      <option>Atacama (III)</option>
+      <option>Coquimbo (IV)</option>
+      <option>Valparaíso (V)</option>
+      <option>Metropolitana (RM)</option>
+      <option>O'Higgins (VI)</option>
+      <option>Maule (VII)</option>
+      <option>Ñuble (XVI)</option>
+      <option>Biobío (VIII)</option>
+      <option>La Araucanía (IX)</option>
+      <option>Los Ríos (XIV)</option>
+      <option>Los Lagos (X)</option>
+      <option>Aysén (XI)</option>
+      <option>Magallanes (XII)</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Localidad / Sector</label>
+    <input type="text" id="localidad" placeholder="ej: Villa Cocholgue, Tomé">
+  </div>
+
+  <div class="field">
     <label>Zona del evento <button class="help-btn" data-help="zona">?</button></label>
     <div class="toggle-group" id="zona-toggle">
       <button class="toggle-btn active" data-val="generacion">Generación</button>
@@ -711,6 +739,11 @@ body {
   </button>
 
   <div class="field" style="margin-top:8px">
+    <label>N° Antecedente / Referencia interna</label>
+    <input type="text" id="n-antecedente" placeholder="ej: Alfa 12 Tomé">
+  </div>
+
+  <div class="field">
     <label>Autor <button class="help-btn" data-help="autor">?</button></label>
     <input type="text" id="autor" placeholder="Nombre y apellido">
   </div>
@@ -1952,151 +1985,247 @@ function collectFormData() {
     otros: document.getElementById('otros')?.value,
     autor: document.getElementById('autor')?.value,
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
+    region: document.getElementById('region')?.value,
+    localidad: document.getElementById('localidad')?.value,
+    'n-antecedente': document.getElementById('n-antecedente')?.value,
   };
+}
+
+function latLonToUTM(lat, lon) {
+  const a = 6378137.0, f = 1/298.257223563;
+  const b = a*(1-f), e2 = 1-(b*b)/(a*a);
+  const zone = Math.floor((lon+180)/6)+1;
+  const lon0R = ((zone-1)*6-180+3)*Math.PI/180;
+  const latR = lat*Math.PI/180, lonR = lon*Math.PI/180;
+  const N = a/Math.sqrt(1-e2*Math.sin(latR)**2);
+  const T = Math.tan(latR)**2, C = e2/(1-e2)*Math.cos(latR)**2;
+  const A = Math.cos(latR)*(lonR-lon0R);
+  const M = a*((1-e2/4-3*e2**2/64-5*e2**3/256)*latR
+    -(3*e2/8+3*e2**2/32+45*e2**3/1024)*Math.sin(2*latR)
+    +(15*e2**2/256+45*e2**3/1024)*Math.sin(4*latR)
+    -(35*e2**3/3072)*Math.sin(6*latR));
+  const x = 0.9996*N*(A+(1-T+C)*A**3/6+(5-18*T+T**2+72*C)*A**5/120)+500000;
+  let y = 0.9996*(M+N*Math.tan(latR)*(A**2/2+(5-T+9*C+4*C**2)*A**4/24+(61-58*T+T**2+600*C)*A**6/720));
+  if (lat < 0) y += 10000000;
+  return { E: Math.round(x), N: Math.round(y), zone: `${zone}${lat<0?'S':'N'}` };
 }
 
 async function generatePDF() {
   const data = collectFormData();
-  const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  const fila = (label, val) => val
-    ? `<tr><td class="lbl">${esc(label)}</td><td>${esc(String(val))}</td></tr>`
-    : '';
+  // Fotos → base64
+  const b64Fotos = await Promise.all(fotosData.map(f => f.blob
+    ? new Promise(res => { const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(f.blob); })
+    : Promise.resolve(null)));
 
+  // UTM coords
+  let coordStr = 'No registradas', altStr = '';
+  if (data.coords) {
+    const utm = latLonToUTM(data.coords.lat, data.coords.lng);
+    coordStr = `${utm.E.toLocaleString()} m E   ${utm.N.toLocaleString()} m N  (UTM-WGS84 H${utm.zone})`;
+  }
+
+  // Campos derivados
   const fechaStr = (() => {
     let s = data['fecha-inicio'] || 'No registrada';
     if (data['fecha-aprox']) s += ' (aprox.)';
     if (data['fecha-fin']) s += ' — ' + data['fecha-fin'];
     return s;
   })();
+  const estado = data.amenaza==='si' ? 'Activo' : data.amenaza==='no' ? 'Inactivo' : data.amenaza==='incierta' ? 'En evaluación' : 'No evaluado';
+  const region = data.region || 'XXXX';
+  const regionCorta = region.replace(/\s*\(.*\)/, '').toUpperCase();
+  const tipo = data['tipo-movimiento'] || 'remoción en masa';
+  const localidad = data.localidad || '___';
+  const antecedente = data['n-antecedente'] || '—';
 
-  const horaStr = data['hora-desconocida'] ? 'Desconocida'
-    : (data['hora-inicio'] || 'No registrada') + (data['hora-fin'] ? ' — ' + data['hora-fin'] : '');
+  // Morfometría → texto y área estimada
+  const morfoVals = {};
+  currentMorfoFields.forEach(f => { if (data[f.id]) morfoVals[f.id] = data[f.id]; });
+  const areaEstimada = (() => {
+    const w = morfoVals['ancho-deposito']?.valor;
+    const l = morfoVals['dist-horizontal']?.valor;
+    if (w && l) return `~${Math.round(w*l)} m²`;
+    return null;
+  })();
+  const morfoTexto = currentMorfoFields
+    .map(f => morfoVals[f.id] ? `${f.label}: ${morfoVals[f.id].valor} ${f.unit}${morfoVals[f.id].estimado?' (est.)':''}` : null)
+    .filter(Boolean).join('. ');
 
-  const morfoRows = currentMorfoFields.map(f => {
-    const v = data[f.id];
-    return v ? fila(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`) : '';
-  }).join('');
+  // Auto-observaciones
+  const obsPartes = [];
+  obsPartes.push(`En el sector de ${localidad}${data.region ? ', Región de '+data.region.replace(/\s*\(.*\)/,'') : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
+  if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
+  if (morfoTexto) obsPartes.push(morfoTexto + '.');
+  if (data.litologia) {
+    let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
+    if (data['grado-alteracion']) litFrase += `, con ${esc(data['grado-alteracion'].toLowerCase())}`;
+    obsPartes.push(litFrase + '.');
+  }
+  if (data.estructuras?.length) obsPartes.push(`Se observan ${esc(data.estructuras.join(', '))} en el escarpe.`);
+  if ((data['estructuras-dip']||[]).length) {
+    const dipStr = data['estructuras-dip'].map(e=>`${e.tipo||'estructura'} ${e.dipDir||'?'}°N/${e.dip||'?'}°`).join('; ');
+    obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
+  }
+  if (data.efectos) obsPartes.push(esc(data.efectos));
+  if (data.otros) obsPartes.push(esc(data.otros));
+  const observaciones = obsPartes.map(p=>`<p style="margin-bottom:6px;text-align:justify">${p}</p>`).join('');
 
-  const estDipRows = (data['estructuras-dip'] || []).map(e =>
-    fila(`↗ ${e.tipo || 'Estructura'}`, `${e.dipDir || '?'}°N / ${e.dip || '?'}°`)
-  ).join('');
+  // Auto-conclusiones y recomendaciones
+  const infra = data.infraestructura?.length ? data.infraestructura.join(', ') : null;
+  const personas = data['personas-afectadas'];
+  const concluFrase = data.amenaza==='si'
+    ? `Se concluye que la remoción en masa se encuentra <b>activa</b> y podría afectar${infra?' a '+esc(infra):''}${personas?' con '+esc(personas)+' personas afectadas':''} en futuras reactivaciones.`
+    : data.amenaza==='incierta'
+      ? `Se concluye que la remoción en masa se encuentra <b>en evaluación</b>. No se descarta que el evento pueda reactivarse.`
+      : `Se concluye que la remoción en masa se encuentra <b>inactiva</b> al momento de la visita.`;
 
-  // Fotos como base64 data URLs
-  const fotosHtml = await Promise.all(fotosData.map(async (f, i) => {
-    if (!f.blob) return '';
-    const b64 = await new Promise(res => {
-      const r = new FileReader();
-      r.onload = e => res(e.target.result);
-      r.readAsDataURL(f.blob);
-    });
-    const azStr = f.azimuth !== null && f.azimuth !== undefined
-      ? `<span class="az">🧭 ${f.azimuth}°N</span>` : '';
-    return `<div class="foto-block">
-      <img src="${b64}">
-      <p class="foto-cap"><b>Foto ${i+1}</b>${f.desc ? ': ' + esc(f.desc) : ''} ${azStr}</p>
-    </div>`;
-  }));
+  const recomendaciones = [];
+  if (data.amenaza==='si'||data.amenaza==='incierta') {
+    recomendaciones.push('Se recomienda que las personas que habiten en predios afectados o adyacentes implementen medidas de mitigación y evacúen si la amenaza es activa.');
+    recomendaciones.push(`Monitorear periódicamente el ${esc(tipo.toLowerCase())} ocurrido, especialmente los sectores más inestables con especial atención a eventos de lluvia o sismos.`);
+  }
+  recomendaciones.push('Implementar medidas de drenaje y conducción de aguas lluvias para protección de taludes y laderas que hayan sido afectadas por remociones en masa o que pudiesen sufrir este tipo de fenómenos.');
+  if (data['dist-vivienda'] || infra) {
+    recomendaciones.push(`Considerar un perímetro de seguridad desde el escarpe principal de la remoción en masa${data['dist-vivienda']?' (referencia: '+data['dist-vivienda']+' m a vivienda más cercana)':''}.`);
+  }
 
-  const coordStr = data.coords
-    ? `${data.coords.lat.toFixed(6)}, ${data.coords.lng.toFixed(6)}`
-    : 'No registradas';
+  // Fotos
+  const foto1 = b64Fotos[0] || null;
+  const foto2 = b64Fotos[1] || null;
+  const fotosRestantes = b64Fotos.slice(2).filter(Boolean);
+
+  const fotoCaption = (i) => {
+    const f = fotosData[i];
+    if (!f) return '';
+    const az = f.azimuth!=null ? ` 🧭 ${f.azimuth}°N` : '';
+    return `${f.desc||''}${az}`.trim();
+  };
+
+  const fotosAdicionalesHtml = fotosRestantes.map((b64, i) => `
+    <div style="margin-top:10px;page-break-inside:avoid">
+      <img src="${b64}" style="max-width:100%;max-height:180px;object-fit:cover;border:1px solid #ccc">
+      <p style="font-size:8pt;color:#555;margin-top:3px"><i>Foto ${i+3}${fotoCaption(i+2)?': '+esc(fotoCaption(i+2)):''}</i></p>
+    </div>`).join('');
+
+  const today = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-<title>Informe Remoción en Masa</title>
+<title>MINUTA ATG FLASH ${regionCorta}</title>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Arial, sans-serif; font-size: 11pt; color: #111; padding: 20mm 18mm; }
-  h1 { font-size: 16pt; color: #c0392b; border-bottom: 2px solid #c0392b; padding-bottom: 6px; margin-bottom: 12px; }
-  h2 { font-size: 12pt; color: #333; background: #f0f0f0; padding: 5px 8px; margin: 14px 0 6px; border-left: 4px solid #c0392b; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  td { padding: 4px 8px; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
-  td.lbl { width: 38%; font-weight: bold; color: #555; white-space: nowrap; }
-  .header-meta { display: flex; justify-content: space-between; font-size: 9pt; color: #666; margin-bottom: 14px; }
-  .foto-block { margin: 10px 0; page-break-inside: avoid; }
-  .foto-block img { max-width: 100%; max-height: 220px; border-radius: 6px; object-fit: cover; }
-  .foto-cap { font-size: 9pt; color: #555; margin-top: 4px; }
-  .az { background: #eaf4fb; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
-  .fotos-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .amenaza-si { color: red; font-weight: bold; }
-  .amenaza-incierta { color: orange; font-weight: bold; }
-  @media print {
-    body { padding: 12mm 14mm; }
-    @page { margin: 10mm; }
-  }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #111; padding: 15mm 18mm; }
+.logo-bar { display:flex; align-items:flex-start; gap:14px; margin-bottom:10px; }
+.flag { display:flex; flex-direction:column; width:52px; }
+.flag .red { background:#d52b1e; height:18px; }
+.flag .blue { background:#003876; height:18px; margin-top:2px; }
+.logo-text { font-size:10pt; font-weight:bold; line-height:1.35; }
+.titulo-minuta { text-align:center; font-weight:bold; font-size:11pt; margin-bottom:2px; text-decoration:underline; }
+.titulo-inst { text-align:center; font-size:9.5pt; margin-bottom:2px; }
+.titulo-resumen { text-align:center; font-weight:bold; font-size:10pt; margin-bottom:8px; }
+table.main { width:100%; border-collapse:collapse; border:1.5px solid #222; }
+table.main td, table.main th { border:1px solid #555; padding:4px 7px; vertical-align:top; font-size:10pt; }
+table.main th { background:#ddd; font-weight:bold; text-align:left; }
+.desc-row { background:#e8e8e8; font-weight:bold; font-size:10pt; }
+.lbl { font-weight:bold; }
+.foto-td { vertical-align:top; text-align:center; padding:4px; }
+.foto-td img { max-width:100%; max-height:200px; object-fit:cover; border:1px solid #aaa; }
+.foto-cap { font-size:7.5pt; color:#444; margin-top:2px; font-style:italic; }
+.foto2 { width:100%; text-align:center; border-top:1px solid #555; padding:6px; }
+.foto2 img { max-width:100%; max-height:220px; object-fit:cover; border:1px solid #aaa; }
+.section-header { background:#222; color:#fff; font-weight:bold; text-align:center; font-size:10pt; padding:4px; }
+.obs-text { padding:6px 8px; font-size:10pt; text-align:justify; }
+.conc-header { background:#ddd; font-weight:bold; text-align:center; font-size:10pt; padding:4px; border-top:1px solid #555; }
+.conc-text { padding:6px 8px; font-size:10pt; }
+.conc-text ol { margin-left:18px; }
+.conc-text li { margin-bottom:4px; text-align:justify; }
+.footer-sig { text-align:right; font-size:9.5pt; margin-top:10px; font-weight:bold; }
+.refs { font-size:8.5pt; margin-top:10px; color:#333; }
+@media print { body { padding:10mm 14mm; } @page { margin:8mm; } }
 </style></head><body>
-<h1>Ficha de Catastro — Remoción en Masa</h1>
-<div class="header-meta">
-  <span>SERNAGEOMIN</span>
-  <span>Generado: ${new Date().toLocaleString('es-CL')}</span>
-  <span>Autor: ${esc(data.autor) || 'No registrado'}</span>
+
+<div class="logo-bar">
+  <div class="flag"><div class="red"></div><div class="blue"></div></div>
+  <div class="logo-text">Servicio Nacional<br>de Geología y<br>Minería</div>
 </div>
 
-<h2>📍 Ubicación y Evento</h2>
-<table>
-  ${fila('Coordenadas (lat, lon)', coordStr)}
-  ${fila('Zona del evento', data.zona)}
-  ${fila('Fecha', fechaStr)}
-  ${fila('Hora', horaStr)}
-  ${fila('Desencadenante', data.desencadenante)}
-  ${fila('Tipo de movimiento', data['tipo-movimiento'])}
+<div class="titulo-minuta">MINUTA ATG FLASH ${regionCorta} XXXX</div>
+<div class="titulo-inst">SERVICIO NACIONAL DE GEOLOGÍA Y MINERÍA SERNAGEOMIN</div>
+<div class="titulo-resumen">RESUMEN DE ESTADO DE REMOCIÓN EN MASA</div>
+
+<table class="main">
+  <tr>
+    <td colspan="2" class="desc-row">
+      Descripción de la remoción en masa de tipo <u>${esc(tipo)}</u> observada el ${esc(data['hora-ingreso']||fechaStr)}
+    </td>
+  </tr>
+  <tr>
+    <td style="width:48%;vertical-align:top">
+      <p><span class="lbl">Día Evento:</span> ${esc(fechaStr)}</p>
+      <p><span class="lbl">Desencadenante:</span> ${esc(data.desencadenante||'No registrado')}</p>
+      <p style="margin-top:6px"><span class="lbl">IDENTIFICACIÓN:</span> Remoción en masa</p>
+      <p><span class="lbl">TIPO:</span> ${esc(tipo)}</p>
+      <p><span class="lbl">ANTECEDENTE:</span> ${esc(antecedente)}</p>
+      <table style="width:100%;margin-top:6px;border-collapse:collapse">
+        <tr><td style="border:1px solid #888;padding:3px 6px" class="lbl">Estado</td><td style="border:1px solid #888;padding:3px 6px">${esc(estado)}</td></tr>
+        ${areaEstimada?`<tr><td style="border:1px solid #888;padding:3px 6px" class="lbl">Área (orden)</td><td style="border:1px solid #888;padding:3px 6px">${areaEstimada}</td></tr>`:''}
+      </table>
+      <p style="margin-top:6px" class="lbl">Ubicación</p>
+      <p>${esc(localidad)}</p>
+      <p style="margin-top:6px" class="lbl">Coordenada de referencia</p>
+      <p>${esc(coordStr)}</p>
+    </td>
+    <td class="foto-td">
+      ${foto1 ? `<img src="${foto1}"><p class="foto-cap">${esc(fotoCaption(0))}</p>` : '<p style="color:#aaa;font-size:9pt">Sin foto 1</p>'}
+    </td>
+  </tr>
+  ${foto2 ? `<tr><td colspan="2" class="foto2"><img src="${foto2}"><p class="foto-cap" style="text-align:center">${esc(fotoCaption(1))}</p></td></tr>` : ''}
+  <tr>
+    <td colspan="2">
+      <div class="section-header">Insumos utilizados para el análisis</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr>
+          <td style="padding:4px 8px;width:50%;border-right:1px solid #888">Imágenes satelitales (Esri World Imagery)</td>
+          <td style="padding:4px 8px">Fotos de terreno${fotosData.filter(f=>f.blob).length>0?' ('+fotosData.filter(f=>f.blob).length+' fotografías)':''}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <div class="section-header">Observaciones</div>
+      <div class="obs-text">${observaciones}</div>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <div class="conc-header">Conclusiones y recomendaciones</div>
+      <div class="conc-text">
+        <p style="margin-bottom:8px;text-align:justify">${concluFrase}</p>
+        <ol>${recomendaciones.map(r=>`<li>${r}</li>`).join('')}</ol>
+      </div>
+    </td>
+  </tr>
 </table>
 
-<h2>📐 Morfometría</h2>
-<table>${morfoRows || '<tr><td colspan="2" style="color:#aaa">No registrada</td></tr>'}</table>
+${fotosAdicionalesHtml ? `<div style="margin-top:10px"><b>Fotografías adicionales</b>${fotosAdicionalesHtml}</div>` : ''}
 
-<h2>🪨 Características del Depósito</h2>
-<table>
-  ${fila('Granulometría', data.granulometria?.join(', '))}
-  ${fila('Plasticidad', data.plasticidad)}
-  ${fila('Tamaño máx. bloques', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
-  ${fila('Proporción bloques', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
-  ${fila('Humedad (al momento de visita)', data.humedad)}
-  ${fila('Sorting', data.sorting)}
-</table>
+<div class="footer-sig">${today}/${esc(data.autor||'___')}_UATEG</div>
 
-<h2>⛰️ Zona de Generación / Talud / Escarpe</h2>
-<table>
-  ${fila('Tipo de ladera', data['tipo-ladera'])}
-  ${fila('Geometría ladera', data['geometria-ladera']?.join(', '))}
-  ${fila('Estado del escarpe', data['estado-escarpe'])}
-  ${fila('Litología dominante', data.litologia)}
-  ${fila('Suelo sobre roca', data['suelo-adicional'])}
-  ${fila('Alteración / meteorización', data['grado-alteracion'])}
-  ${fila('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
-  ${fila('Estructuras geológicas', data.estructuras?.join(', '))}
-  ${estDipRows}
-  ${fila('Vegetación', data.vegetacion)}
-</table>
-
-<h2>🌧️ Condiciones Previas</h2>
-<table>
-  ${fila('Lluvia previa intensa', data['lluvia-previa'])}
-  ${fila('Sismo previo', data['sismo-previo'] ? data['sismo-previo'] + (data['sismo-magnitud'] ? ' Mw ' + data['sismo-magnitud'] : '') : null)}
-  ${fila('Intervención antrópica', data.antropico)}
-</table>
-
-<h2>⚠️ Contexto de Riesgo</h2>
-<table>
-  ${fila('Amenaza activa', `<span class="${data.amenaza === 'si' ? 'amenaza-si' : data.amenaza === 'incierta' ? 'amenaza-incierta' : ''}">${data.amenaza === 'si' ? 'SÍ' : data.amenaza === 'incierta' ? 'Incierta' : data.amenaza === 'no' ? 'No' : ''}</span>`)}
-  ${fila('Personas afectadas', data['personas-afectadas'] ? data['personas-afectadas'] + (data['num-personas'] ? ' (' + data['num-personas'] + ')' : '') : null)}
-  ${fila('Infraestructura', data.infraestructura?.join(', '))}
-  ${fila('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
-</table>
-
-${data.efectos ? `<h2>📝 Efectos</h2><p style="padding:4px 8px">${esc(data.efectos)}</p>` : ''}
-${data.otros ? `<h2>💬 Observaciones adicionales</h2><p style="padding:4px 8px">${esc(data.otros)}</p>` : ''}
-
-${fotosHtml.some(f => f) ? `<h2>📷 Fotografías</h2><div class="fotos-grid">${fotosHtml.join('')}</div>` : ''}
+<div class="refs">
+  <b>Referencias:</b><br>
+  <span style="color:#aaa">[Agregar referencias si corresponde]</span>
+</div>
 
 </body></html>`;
 
   const win = window.open('', '_blank');
-  if (!win) { alert('Permite ventanas emergentes para generar el informe.'); return; }
+  if (!win) { alert('Permite ventanas emergentes para generar el informe PDF.'); return; }
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 600);
+  setTimeout(() => win.print(), 800);
 }
   </script>
 
