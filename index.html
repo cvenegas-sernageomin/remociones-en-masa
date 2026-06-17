@@ -526,19 +526,57 @@ body {
   <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Talud / Escarpe</h3>
 
   <div class="field">
-    <label>Litología <button class="help-btn" data-help="litologia">?</button></label>
+    <label>Litología dominante <button class="help-btn" data-help="litologia">?</button></label>
     <select id="litologia">
       <option value="">— Seleccionar —</option>
-      <option>Granito / Granodiorita</option>
-      <option>Basalto / Andesita</option>
-      <option>Riolita / Ignimbrita</option>
-      <option>Pizarra / Esquisto</option>
-      <option>Caliza / Mármol</option>
-      <option>Arenisca / Lutita</option>
-      <option>Suelo volcánico (cenizas)</option>
-      <option>Depósito no consolidado (gravas, arenas)</option>
-      <option>Relleno antrópico</option>
-      <option>Otro</option>
+      <optgroup label="Rocas">
+        <option>Granito / Granodiorita</option>
+        <option>Basalto / Andesita</option>
+        <option>Riolita / Ignimbrita</option>
+        <option>Pizarra / Esquisto</option>
+        <option>Caliza / Mármol</option>
+        <option>Arenisca / Lutita</option>
+        <option>Otro (roca)</option>
+      </optgroup>
+      <optgroup label="Suelos y depósitos">
+        <option>Suelo residual (meteorización in situ)</option>
+        <option>Suelo volcánico (cenizas, pómez)</option>
+        <option>Depósito coluvial</option>
+        <option>Depósito fluvial (gravas, arenas)</option>
+        <option>Relleno antrópico</option>
+        <option>Otro (suelo)</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>¿Hay suelo además de roca? <button class="help-btn" data-help="suelo-adicional">?</button></label>
+    <select id="suelo-adicional">
+      <option value="">— Seleccionar —</option>
+      <option>No / Solo roca</option>
+      <option>Suelo delgado (&lt;0,5 m)</option>
+      <option>Suelo moderado (0,5–2 m)</option>
+      <option>Suelo profundo (&gt;2 m)</option>
+      <option>No evaluable</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Grado de alteración / meteorización <button class="help-btn" data-help="grado-alteracion">?</button></label>
+    <select id="grado-alteracion">
+      <option value="">— Seleccionar —</option>
+      <optgroup label="Meteorización (ISRM)">
+        <option>W1 – Fresca (sin alteración visible)</option>
+        <option>W2 – Ligeramente meteorizada</option>
+        <option>W3 – Moderadamente meteorizada</option>
+        <option>W4 – Muy meteorizada</option>
+        <option>W5 – Completamente meteorizada (suelo residual)</option>
+      </optgroup>
+      <optgroup label="Alteración hidrotermal">
+        <option>Hidrotermal leve (silicificación o carbonatación débil)</option>
+        <option>Hidrotermal moderada (arcillización parcial)</option>
+        <option>Hidrotermal intensa (arcillización total, clays dominantes)</option>
+      </optgroup>
     </select>
   </div>
 
@@ -1218,8 +1256,16 @@ const HELP_TEXTS = {
     text: 'Condición de la superficie del escarpe o zona de arranque al momento de la visita. Fresco: material recién expuesto, sin meteorización visible, puede tener brillo, humedad o fragmentos sueltos recientes. Parcialmente meteorizado: hay signos de alteración superficial pero aún hay material competente. Muy meteorizado: el material está descompuesto, friable o con alteración profunda. Antiguo/revegetado: el escarpe ya tiene vegetación recolonizando, indica evento no muy reciente.'
   },
   litologia: {
-    title: 'Litología del talud',
-    text: 'Tipo de roca o material que conforma el talud donde se originó el movimiento. Observar el escarpe y el material movilizado para identificarla.'
+    title: 'Litología dominante',
+    text: 'Tipo de roca o suelo que domina en el talud donde se originó el movimiento. Observar el escarpe y el material movilizado. Si es solo suelo (sin afloramiento rocoso visible), seleccionar en el grupo "Suelos y depósitos".'
+  },
+  'suelo-adicional': {
+    title: '¿Hay suelo además de roca?',
+    text: 'Indica si sobre la roca existe una cubierta de suelo y su espesor estimado. Es relevante porque el plano de falla suele ocurrir en la interfaz roca/suelo. Delgado: menos de 0,5 m. Moderado: 0,5 a 2 m. Profundo: más de 2 m. Si la litología dominante ya es suelo, seleccionar "No / Solo roca" no aplica — dejar en blanco.'
+  },
+  'grado-alteracion': {
+    title: 'Grado de alteración / meteorización',
+    text: 'La escala ISRM (W1–W5) describe el grado de meteorización de la roca: W1 es roca fresca sin cambios visibles; W5 es roca completamente descompuesta que se comporta como suelo. La alteración hidrotermal es distinta: corresponde a cambios químicos por fluidos hidrotermales (agua caliente con minerales), que pueden producir arcillas expansivas (esmectitas) muy inestables, incluso en zonas sin meteorización superficial evidente. Ambas debilitan el macizo rocoso y favorecen los movimientos en masa.'
   },
   orientacion: {
     title: 'Orientación del escarpe',
@@ -1386,7 +1432,9 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Tipo de ladera', data['tipo-ladera'])}
   ${row('Geometría ladera', data['geometria-ladera']?.join(', '))}
   ${row('Estado del escarpe', data['estado-escarpe'])}
-  ${row('Litología', data.litologia)}
+  ${row('Litología dominante', data.litologia)}
+  ${row('Suelo sobre roca', data['suelo-adicional'])}
+  ${row('Alteración / meteorización', data['grado-alteracion'])}
   ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
   ${row('Estructuras', data.estructuras?.join(', '))}
   ${row('Vegetación', data.vegetacion)}
@@ -1595,6 +1643,8 @@ async function generateKMZ() {
       'geometria-ladera': getChipsValues('geometria-ladera-chips'),
       'estado-escarpe': document.getElementById('estado-escarpe').value,
       litologia: document.getElementById('litologia').value,
+      'suelo-adicional': document.getElementById('suelo-adicional').value,
+      'grado-alteracion': document.getElementById('grado-alteracion').value,
       orientacion: document.getElementById('orientacion').value,
       estructuras: getChipsValues('estructuras-chips'),
       vegetacion: document.getElementById('vegetacion').value,
