@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><title>Generar íconos PWA</title></head>
+<body>
+<script>
+function generateIcon(size) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  const r = size * 0.156; // rounded corner radius
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(size - r, 0);
+  ctx.quadraticCurveTo(size, 0, size, r);
+  ctx.lineTo(size, size - r);
+  ctx.quadraticCurveTo(size, size, size - r, size);
+  ctx.lineTo(r, size);
+  ctx.quadraticCurveTo(0, size, 0, size - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fillStyle = '#e63946';
+  ctx.fill();
+
+  // Mountain emoji
+  ctx.font = `${size * 0.55}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏔️', size / 2, size / 2);
+
+  canvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `icon-${size}.png`;
+    a.click();
+  }, 'image/png');
+}
+
+generateIcon(192);
+setTimeout(() => generateIcon(512), 500);
+</script>
+<p>Los íconos se están descargando automáticamente. Mueve los archivos a la carpeta <code>icons/</code>.</p>
+</body>
+</html>
