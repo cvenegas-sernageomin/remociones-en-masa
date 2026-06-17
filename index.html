@@ -487,17 +487,56 @@ body {
     </select>
   </div>
 
+  <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Zona de Generación</h3>
+
+  <div class="field">
+    <label>Tipo de ladera <button class="help-btn" data-help="tipo-ladera">?</button></label>
+    <select id="tipo-ladera">
+      <option value="">— Seleccionar —</option>
+      <option>Natural</option>
+      <option>Corte vial</option>
+      <option>Terraplén / relleno</option>
+      <option>Ribera fluvial</option>
+      <option>Ladera de depósito volcánico</option>
+      <option>Otro</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Geometría de la ladera <button class="help-btn" data-help="geometria-ladera">?</button></label>
+    <div class="chips-group" id="geometria-ladera-chips">
+      <button type="button" class="chip" data-val="concava">Cóncava</button>
+      <button type="button" class="chip" data-val="convexa">Convexa</button>
+      <button type="button" class="chip" data-val="plana">Plana</button>
+      <button type="button" class="chip" data-val="irregular">Irregular</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Estado del escarpe <button class="help-btn" data-help="estado-escarpe">?</button></label>
+    <select id="estado-escarpe">
+      <option value="">— Seleccionar —</option>
+      <option>Fresco (roca/suelo expuesto reciente)</option>
+      <option>Parcialmente meteorizado</option>
+      <option>Muy meteorizado</option>
+      <option>Antiguo / revegetado</option>
+    </select>
+  </div>
+
   <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Talud / Escarpe</h3>
 
   <div class="field">
     <label>Litología <button class="help-btn" data-help="litologia">?</button></label>
     <select id="litologia">
       <option value="">— Seleccionar —</option>
-      <option>Granito</option>
-      <option>Basalto</option>
-      <option>Andesita</option>
-      <option>Pizarra</option>
-      <option>Suelo volcánico</option>
+      <option>Granito / Granodiorita</option>
+      <option>Basalto / Andesita</option>
+      <option>Riolita / Ignimbrita</option>
+      <option>Pizarra / Esquisto</option>
+      <option>Caliza / Mármol</option>
+      <option>Arenisca / Lutita</option>
+      <option>Suelo volcánico (cenizas)</option>
+      <option>Depósito no consolidado (gravas, arenas)</option>
       <option>Relleno antrópico</option>
       <option>Otro</option>
     </select>
@@ -514,6 +553,7 @@ body {
       <button type="button" class="chip" data-val="fallas">Fallas</button>
       <button type="button" class="chip" data-val="diaclasas">Diaclasas</button>
       <button type="button" class="chip" data-val="foliacion">Foliación</button>
+      <button type="button" class="chip" data-val="estrato">Estratificación</button>
       <button type="button" class="chip" data-val="sin-estructuras">Sin estructuras visibles</button>
     </div>
   </div>
@@ -523,8 +563,9 @@ body {
     <select id="vegetacion">
       <option value="">— Seleccionar —</option>
       <option>Sin vegetación</option>
+      <option>Pastizal / herbácea</option>
       <option>Matorral</option>
-      <option>Bosque</option>
+      <option>Bosque nativo</option>
       <option>Plantación forestal</option>
     </select>
   </div>
@@ -1164,6 +1205,18 @@ const HELP_TEXTS = {
     title: 'Clasificación del material (Sorting)',
     text: 'Bien clasificado: el material es bastante uniforme en tamaño. Mal clasificado: hay mezcla de tamaños pero con cierto orden. Caótico: hay de todo revuelto — bloques grandes, tierra fina, ramas — sin ningún orden.'
   },
+  'tipo-ladera': {
+    title: 'Tipo de ladera',
+    text: 'Origen o naturaleza de la ladera donde se generó el movimiento. Natural: ladera formada por procesos geológicos sin intervención humana. Corte vial: talud generado por excavación de camino o carretera. Terraplén/relleno: material depositado artificialmente. Ribera fluvial: margen de río o estero erosionada por el cauce. Ladera de depósito volcánico: ladera formada sobre cenizas, pómez u otros materiales piroclásticos.'
+  },
+  'geometria-ladera': {
+    title: 'Geometría de la ladera',
+    text: 'Forma de la ladera en perfil y en planta. Cóncava: ladera con concavidad hacia arriba (forma de cuchara), favorece concentración de agua. Convexa: ladera abombada hacia afuera, favorece dispersión. Plana: pendiente uniforme sin curvatura. Irregular: combinación de formas o muy accidentada. Puedes seleccionar más de una si la ladera tiene geometría mixta.'
+  },
+  'estado-escarpe': {
+    title: 'Estado del escarpe',
+    text: 'Condición de la superficie del escarpe o zona de arranque al momento de la visita. Fresco: material recién expuesto, sin meteorización visible, puede tener brillo, humedad o fragmentos sueltos recientes. Parcialmente meteorizado: hay signos de alteración superficial pero aún hay material competente. Muy meteorizado: el material está descompuesto, friable o con alteración profunda. Antiguo/revegetado: el escarpe ya tiene vegetación recolonizando, indica evento no muy reciente.'
+  },
   litologia: {
     title: 'Litología del talud',
     text: 'Tipo de roca o material que conforma el talud donde se originó el movimiento. Observar el escarpe y el material movilizado para identificarla.'
@@ -1328,8 +1381,11 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Humedad', data.humedad)}
   ${row('Sorting', data.sorting)}
 </table>
-<h3 style="color:#555;margin-top:12px">⛰️ Talud / Escarpe</h3>
+<h3 style="color:#555;margin-top:12px">⛰️ Zona de Generación / Talud / Escarpe</h3>
 <table style="border-collapse:collapse;width:100%">
+  ${row('Tipo de ladera', data['tipo-ladera'])}
+  ${row('Geometría ladera', data['geometria-ladera']?.join(', '))}
+  ${row('Estado del escarpe', data['estado-escarpe'])}
   ${row('Litología', data.litologia)}
   ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
   ${row('Estructuras', data.estructuras?.join(', '))}
@@ -1535,6 +1591,9 @@ async function generateKMZ() {
       humedad: document.getElementById('humedad').value,
       plasticidad: getToggleValue('plasticidad-toggle'),
       sorting: document.getElementById('sorting').value,
+      'tipo-ladera': document.getElementById('tipo-ladera').value,
+      'geometria-ladera': getChipsValues('geometria-ladera-chips'),
+      'estado-escarpe': document.getElementById('estado-escarpe').value,
       litologia: document.getElementById('litologia').value,
       orientacion: document.getElementById('orientacion').value,
       estructuras: getChipsValues('estructuras-chips'),
