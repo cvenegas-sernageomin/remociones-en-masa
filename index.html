@@ -2222,12 +2222,21 @@ ${fotosAdicionalesHtml ? `<div style="margin-top:10px"><b>Fotografías adicional
 
 </body></html>`;
 
-  const win = window.open('', '_blank');
-  if (!win) { alert('Permite ventanas emergentes para generar el informe PDF.'); return; }
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 800);
+  // Usar iframe oculto para evitar bloqueo de popups en móvil
+  let iframe = document.getElementById('pdf-iframe');
+  if (iframe) iframe.remove();
+  iframe = document.createElement('iframe');
+  iframe.id = 'pdf-iframe';
+  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none';
+  document.body.appendChild(iframe);
+  iframe.contentDocument.open();
+  iframe.contentDocument.write(html);
+  iframe.contentDocument.close();
+  setTimeout(() => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    setTimeout(() => iframe.remove(), 2000);
+  }, 800);
 }
   </script>
 
