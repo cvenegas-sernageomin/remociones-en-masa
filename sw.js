@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v4';
+const CACHE_NAME = 'remociones-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -15,7 +15,10 @@ const ASSETS = [
   'https://unpkg.com/leaflet.offline@2.2.0/dist/leaflet.offline.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
   'https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js',
-  'https://unpkg.com/georaster-layer-for-leaflet@3.9.0/dist/georaster-layer-for-leaflet.min.js'
+  'https://unpkg.com/georaster-layer-for-leaflet@3.9.0/dist/georaster-layer-for-leaflet.min.js',
+  'https://cvenegas-sernageomin.github.io/voz-terreno/voz-module.js',
+  'https://cvenegas-sernageomin.github.io/voz-terreno/whisper-worker.js',
+  'https://cvenegas-sernageomin.github.io/voz-terreno/transformers.min.js'
 ];
 
 self.addEventListener('install', e => {
