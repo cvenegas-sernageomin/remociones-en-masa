@@ -1,7 +1,7 @@
 {
-  "name": "Catastro Remociones en Masa",
+  "name": "Ingreso de Remociones en Masa",
   "short_name": "Remociones",
-  "description": "Captura de datos de remociones en masa en terreno",
+  "description": "Ingreso de datos de remociones en masa en terreno",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "portrait",

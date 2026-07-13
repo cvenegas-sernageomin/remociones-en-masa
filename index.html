@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#e63946">
-  <title>Catastro Remociones en Masa</title>
+  <title>Ingreso de Remociones en Masa</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 
@@ -20,7 +20,7 @@
 
   <!-- georaster -->
   <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
-  <script src="https://unpkg.com/georaster-layer-for-leaflet@3.9.0/dist/georaster-layer-for-leaflet.min.js"></script>
+  <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -338,7 +338,7 @@ body.map-mode #nav-buttons { display: none !important; }
 <body>
   <!-- Header -->
 <div id="app-header">
-  <h1>🏔️ Remociones en Masa</h1>
+  <h1>🏔️ Ingreso de Remociones en Masa</h1>
   <div id="view-tabs">
     <button type="button" class="viewtab active" data-view="ficha">📝 Ficha</button>
     <button type="button" class="viewtab" data-view="mapa">🗺️ Mapa</button>
@@ -365,7 +365,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <input type="text" id="prof-iniciales" placeholder="Ej: CVB" maxlength="5" style="text-transform:uppercase">
   </div>
 
-  <div class="field">
+  <div class="field" style="display:none">
     <label>ID de la RM <button class="help-btn" data-help="rm-id">?</button></label>
     <input type="text" id="rm-id" placeholder="RM-CVB-AAAAMMDD-NN">
   </div>
@@ -378,29 +378,6 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="btn-load-geotiff">🛰️ Cargar GeoTIFF</button>
     <input type="file" id="input-geotiff" accept=".tif,.tiff" style="display:none">
   </div>
-  <div class="field">
-    <label>Región</label>
-    <select id="region">
-      <option value="">— Seleccionar —</option>
-      <option>Arica y Parinacota (XV)</option>
-      <option>Tarapacá (I)</option>
-      <option>Antofagasta (II)</option>
-      <option>Atacama (III)</option>
-      <option>Coquimbo (IV)</option>
-      <option>Valparaíso (V)</option>
-      <option>Metropolitana (RM)</option>
-      <option>O'Higgins (VI)</option>
-      <option>Maule (VII)</option>
-      <option>Ñuble (XVI)</option>
-      <option>Biobío (VIII)</option>
-      <option>La Araucanía (IX)</option>
-      <option>Los Ríos (XIV)</option>
-      <option>Los Lagos (X)</option>
-      <option>Aysén (XI)</option>
-      <option>Magallanes (XII)</option>
-    </select>
-  </div>
-
   <div class="field">
     <label>Localidad / Sector</label>
     <input type="text" id="localidad" placeholder="ej: Villa Cocholgue, Tomé">
@@ -454,7 +431,7 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
-    <label>Tipo de movimiento <button class="help-btn" data-help="tipo">?</button></label>
+    <label>Tipo de remoción <button class="help-btn" data-help="tipo">?</button></label>
     <select id="tipo-movimiento">
       <option value="">— Seleccionar —</option>
       <optgroup label="Caídas (Falls)">
@@ -510,7 +487,7 @@ body.map-mode #nav-buttons { display: none !important; }
 
 <!-- PASO 4: Características y contexto -->
 <div class="step" id="step-4">
-  <h2>🪨 Características y Contexto</h2>
+  <h2>🪨 Características del material y ladera</h2>
 
   <h3 style="font-size:0.85rem;color:var(--muted);margin-top:4px">Depósito</h3>
 
@@ -730,8 +707,11 @@ body.map-mode #nav-buttons { display: none !important; }
       <option>Otro</option>
     </select>
   </div>
+</div>
 
-  <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Contexto de riesgo</h3>
+<!-- PASO 5: Contexto de riesgo -->
+<div class="step" id="step-5">
+  <h2>⚠️ Contexto de riesgo</h2>
 
   <div class="field amenaza-field">
     <label>⚠️ ¿Amenaza activa? <button class="help-btn" data-help="amenaza">?</button></label>
@@ -781,8 +761,8 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 </div>
 
-<!-- PASO 5: Fotos y cierre -->
-<div class="step" id="step-5">
+<!-- PASO 6: Fotos y cierre -->
+<div class="step" id="step-6">
   <h2>📷 Fotos y Cierre</h2>
 
   <div id="fotos-container"></div>
@@ -902,9 +882,9 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v6';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v7';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
 let mapInstance = null;
 let markerInstance = null;
 let markerPlaced = false;   // true cuando el usuario ubica el punto (GPS o arrastre)
@@ -924,7 +904,7 @@ function goToStep(n) {
   const pct = (n / TOTAL_STEPS) * 100;
   document.getElementById('progress-fill').style.width = pct + '%';
 
-  const labels = ['', 'Ubicación', 'Temporalidad y Evento', 'Morfometría', 'Características y Contexto', 'Fotos y Cierre'];
+  const labels = ['', 'Ubicación', 'Temporalidad y Evento', 'Morfometría', 'Características', 'Contexto de riesgo', 'Fotos y Cierre'];
   document.getElementById('step-label').textContent = `Paso ${n} de ${TOTAL_STEPS} — ${labels[n]}`;
 
   document.getElementById('btn-prev').style.display = n > 1 ? 'block' : 'none';
@@ -1552,7 +1532,7 @@ const HELP_TEXTS = {
     text: 'Factor que gatilló el movimiento. Lluvia intensa: precipitación reciente significativa. Sismo: temblor previo al evento. Deshielo: fusión de nieve/hielo. Antrópico: causa humana (excavación, riego, etc.).'
   },
   tipo: {
-    title: 'Tipo de movimiento',
+    title: 'Tipo de remoción',
     text: 'Caída de roca: bloques que caen libremente. Deslizamiento: masa que se desplaza sobre una superficie. Flujo de detritos: material mezclado con agua que fluye rápido. Aluvión: flujo muy rápido en cauce. Reptación: movimiento muy lento del suelo.'
   },
   'alto-corona': {
@@ -2091,6 +2071,33 @@ document.getElementById('btn-generate').addEventListener('click', () => generate
 // =====================
 document.getElementById('btn-pdf').addEventListener('click', () => generatePDF());
 
+// Región de Chile aproximada a partir de las coordenadas (la ubicación define la región,
+// ya no se selecciona a mano). Franja central: interior = Metropolitana, costa = Valparaíso/O'Higgins.
+function regionFromCoords(c) {
+  if (!c) return '';
+  const lat = c.lat, lon = c.lng ?? c.lon;
+  if (lat == null) return '';
+  if (lat >= -19.2) return 'Arica y Parinacota (XV)';
+  if (lat >= -21.4) return 'Tarapacá (I)';
+  if (lat >= -25.9) return 'Antofagasta (II)';
+  if (lat >= -29.3) return 'Atacama (III)';
+  if (lat >= -32.2) return 'Coquimbo (IV)';
+  if (lat >= -32.9) return 'Valparaíso (V)';
+  if (lat >= -34.3) {
+    if (lon != null && lon > -71.0) return 'Metropolitana (RM)';
+    return lat >= -33.6 ? 'Valparaíso (V)' : "O'Higgins (VI)";
+  }
+  if (lat >= -35.0) return "O'Higgins (VI)";
+  if (lat >= -36.4) return 'Maule (VII)';
+  if (lat >= -37.3) return 'Ñuble (XVI)';
+  if (lat >= -38.5) return 'Biobío (VIII)';
+  if (lat >= -39.7) return 'La Araucanía (IX)';
+  if (lat >= -40.7) return 'Los Ríos (XIV)';
+  if (lat >= -44.1) return 'Los Lagos (X)';
+  if (lat >= -49.3) return 'Aysén (XI)';
+  return 'Magallanes (XII)';
+}
+
 function collectFormData() {
   return {
     id: document.getElementById('rm-id')?.value,
@@ -2134,7 +2141,7 @@ function collectFormData() {
     otros: document.getElementById('otros')?.value,
     autor: document.getElementById('autor')?.value,
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
-    region: document.getElementById('region')?.value,
+    region: regionFromCoords(getCoords()),
     localidad: document.getElementById('localidad')?.value,
     'n-antecedente': document.getElementById('n-antecedente')?.value,
   };
@@ -2551,7 +2558,7 @@ async function saveCurrentRM() {
 }
 
 function resetFormForNewRM() {
-  document.querySelectorAll('#step-1 input, #step-1 select, #step-2 input, #step-2 select, #step-2 textarea, #step-3 input, #step-4 input, #step-4 select, #step-4 textarea, #step-5 input, #step-5 textarea')
+  document.querySelectorAll('.step input, .step select, .step textarea')
     .forEach(el => {
       if (['hora-ingreso', 'autor', 'prof-iniciales'].includes(el.id)) return;
       if (el.type === 'checkbox') el.checked = false;
@@ -3004,7 +3011,7 @@ if (typeof VozTerreno !== 'undefined') {
       { termino: 'roca muy fracturada', campoId: 'grado-alteracion',valor: 'W3 – Moderadamente meteorizada' },
     ],
     campos: [
-      { id: 'tipo-movimiento',  label: 'Tipo de movimiento',  tipo: 'clasificacion',
+      { id: 'tipo-movimiento',  label: 'Tipo de remoción',  tipo: 'clasificacion',
         valores: [
           'Caída de roca','Caída de detritos','Caída de suelo',
           'Vuelco de roca','Vuelco de detritos','Vuelco de suelo',
