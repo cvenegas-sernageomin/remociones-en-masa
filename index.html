@@ -58,6 +58,38 @@ body {
   z-index: 1000;
 }
 #app-header h1 { font-size: 1rem; font-weight: 700; flex: 1; }
+#view-tabs { display: flex; gap: 4px; background: rgba(0,0,0,0.18); border-radius: 9px; padding: 3px; }
+.viewtab {
+  background: transparent; border: none; color: #fff; opacity: 0.75;
+  font-size: 0.8rem; font-weight: 600; padding: 6px 10px; border-radius: 7px; cursor: pointer;
+}
+.viewtab.active { background: rgba(255,255,255,0.22); opacity: 1; }
+#app-ver { font-size: 0.62rem; opacity: 0.7; font-family: monospace; margin-left: 4px; }
+
+/* Vista de mapa a pantalla completa */
+body.map-mode #progress-bar,
+body.map-mode .step,
+body.map-mode #nav-buttons { display: none !important; }
+.rm-divicon { background: transparent; border: none; }
+#mapa-view { display: none; flex-direction: column; flex: 1; position: relative; }
+#mapa-view.active { display: flex; }
+#mapa-full { flex: 1; min-height: 300px; z-index: 1; }
+#mapa-fab {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  padding: 8px 10px; background: var(--surface, var(--mid)); border-top: 1px solid var(--border, var(--light));
+}
+#mapa-fab .map-btn { flex: 0 0 auto; }
+#mapa-fab .pts-count { font-size: 0.75rem; color: var(--muted); flex: 1; text-align: right; }
+.draw-banner {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 1200;
+  background: rgba(18,20,26,0.92); color: #fff; padding: 8px 12px; border-radius: 10px;
+  font-size: 0.82rem; display: flex; gap: 8px; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.draw-banner button { padding: 5px 10px; border-radius: 7px; border: none; cursor: pointer; font-size: 0.8rem; }
+.pt-label {
+  background: rgba(255,255,255,0.92); color: #111; border: 1px solid rgba(0,0,0,0.25);
+  border-radius: 5px; padding: 0 4px; font-size: 10px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
 
 /* Progress bar */
 #progress-bar {
@@ -307,6 +339,11 @@ body {
   <!-- Header -->
 <div id="app-header">
   <h1>🏔️ Remociones en Masa</h1>
+  <div id="view-tabs">
+    <button type="button" class="viewtab active" data-view="ficha">📝 Ficha</button>
+    <button type="button" class="viewtab" data-view="mapa">🗺️ Mapa</button>
+  </div>
+  <span id="app-ver" title="Versión de la app"></span>
 </div>
 
 <!-- Progress -->
@@ -793,6 +830,18 @@ body {
   </div>
 </div>
 
+<!-- Vista de Mapa (Modo Mapa ⇄ Puntos) -->
+<div id="mapa-view">
+  <div id="mapa-full"></div>
+  <div id="mapa-fab">
+    <button class="map-btn" id="mapa-gps">📡 GPS</button>
+    <button class="map-btn" id="mapa-linea">✏️ Línea</button>
+    <button class="map-btn" id="mapa-tiles">⬇️ Tiles</button>
+    <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
+    <span class="pts-count" id="mapa-count">0 RM</span>
+  </div>
+</div>
+
 <!-- Navigation -->
 <div id="nav-buttons">
   <button class="btn-nav btn-prev" id="btn-prev" style="display:none">← Anterior</button>
@@ -853,10 +902,12 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
+const APP_VER = 'v6';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 5;
 let mapInstance = null;
 let markerInstance = null;
+let markerPlaced = false;   // true cuando el usuario ubica el punto (GPS o arrastre)
 let geotiffLayer = null;
 let geotiffBounds = null;
 let geotiffImageData = null;
@@ -1119,10 +1170,16 @@ function createEstDipEntry() {
     <input type="number" class="est-strike" min="0" max="360" placeholder="Rumbo (°N)" title="Rumbo según regla de la mano derecha (manteo a la derecha del rumbo)" style="width:90px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
     <span style="color:var(--muted);font-size:0.85rem">/</span>
     <input type="number" class="est-dip" min="0" max="90" placeholder="Dip (°)" style="width:68px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
-    <button type="button" class="btn-capture-orient" title="Capturar con brújula/acelerómetro (aplica regla mano derecha)" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:1rem;min-width:44px">📡</button>
-    <button type="button" class="btn-remove-est" style="padding:9px 11px;border-radius:8px;border:none;background:#fee2e2;color:#e63946;cursor:pointer;font-size:0.9rem;min-width:44px">✕</button>`;
+    <input type="number" class="est-trend" min="0" max="360" placeholder="Trend" title="Trend de la lineación/estría (0-360°)" style="width:74px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <span style="color:var(--muted);font-size:0.85rem">/</span>
+    <input type="number" class="est-plunge" min="0" max="90" placeholder="Plunge" title="Plunge de la lineación/estría (0-90°)" style="width:74px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <button type="button" class="btn-medir-plano" title="Medir plano (rumbo/manteo RHR) con los sensores del teléfono" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:1rem;min-width:44px">📐</button>
+    <button type="button" class="btn-medir-linea" title="Medir plano + línea (agrega trend/plunge)" style="padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:1rem;min-width:44px">📏</button>
+    <button type="button" class="btn-remove-est" style="padding:9px 11px;border-radius:8px;border:none;background:#fee2e2;color:#e63946;cursor:pointer;font-size:0.9rem;min-width:44px">✕</button>
+    <span class="est-medstatus" style="flex-basis:100%;font-size:0.72rem;color:var(--muted)"></span>`;
   div.querySelector('.btn-remove-est').addEventListener('click', () => div.remove());
-  div.querySelector('.btn-capture-orient').addEventListener('click', () => captureOrientation(div));
+  div.querySelector('.btn-medir-plano').addEventListener('click', () => medirClinoInto(div, 'plano'));
+  div.querySelector('.btn-medir-linea').addEventListener('click', () => medirClinoInto(div, 'linea'));
   return div;
 }
 
@@ -1130,45 +1187,80 @@ document.getElementById('add-estructura-dip').addEventListener('click', () => {
   document.getElementById('estructuras-dip-list').appendChild(createEstDipEntry());
 });
 
-async function captureOrientation(entryDiv) {
-  const btn = entryDiv.querySelector('.btn-capture-orient');
-
-  if (!(await ensureOrientPermission())) {
-    alert('Se necesita permiso de orientación del dispositivo. Ingresa los valores manualmente.');
-    return;
+// ---- Clinómetro vectorial (portado de GeoTerreno CDC) ----
+// Muestrea 3 s, calcula el vector normal al plano (eje Z del teléfono) y el eje mayor (eje Y)
+// en marco Este-Norte-Arriba y promedia los VECTORES (media esférica, correcta cerca de 0/360°).
+const CLINO_MS = 3000, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+function anglesFromEvent(e) {
+  let a = e.alpha;
+  if (typeof e.webkitCompassHeading === 'number') a = (360 - e.webkitCompassHeading);
+  if (a == null || e.beta == null || e.gamma == null) return null;
+  return { a: a * D2R, b: e.beta * D2R, g: e.gamma * D2R };
+}
+function ejesMundo(a, b, g) {
+  const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
+  const n = [cA * sG + sA * sB * cG, sA * sG - cA * sB * cG, cB * cG];
+  const L = [-sA * cB, cA * cB, sB];
+  return { n, L };
+}
+function _normaliza(v) { const m = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / m, v[1] / m, v[2] / m]; }
+function _mediaVec(vecs) { const s = [0, 0, 0]; vecs.forEach(v => { s[0] += v[0]; s[1] += v[1]; s[2] += v[2]; }); return _normaliza(s); }
+function planoDeNormal(n) {
+  if (n[2] < 0) n = [-n[0], -n[1], -n[2]];
+  const dip = Math.acos(Math.max(-1, Math.min(1, n[2]))) * R2D;
+  const dipDir = ((Math.atan2(n[0], n[1]) * R2D) + 180 + 360) % 360;
+  const strike = (dipDir - 90 + 360) % 360;   // regla de la mano derecha
+  return { rumbo: strike, manteo: dip };
+}
+function lineaDeVector(L) {
+  if (L[2] > 0) L = [-L[0], -L[1], -L[2]];
+  const plunge = -Math.asin(Math.max(-1, Math.min(1, L[2]))) * R2D;
+  const trend = ((Math.atan2(L[0], L[1]) * R2D) + 360) % 360;
+  return { trend, plunge };
+}
+function _dispersion(vecs, m) {
+  if (!vecs.length) return 99;
+  let s = 0; vecs.forEach(v => { const d = Math.max(-1, Math.min(1, v[0] * m[0] + v[1] * m[1] + v[2] * m[2])); s += Math.acos(Math.abs(d)); });
+  return (s / vecs.length) * R2D;
+}
+async function medirEstructura(modo, onTick) {
+  if (!(await ensureOrientPermission())) return null;
+  const evt = ('ondeviceorientationabsolute' in window) ? 'deviceorientationabsolute' : 'deviceorientation';
+  const normals = [], lines = [];
+  return new Promise(res => {
+    const on = e => {
+      const ang = anglesFromEvent(e); if (!ang) return;
+      const { n, L } = ejesMundo(ang.a, ang.b, ang.g);
+      normals.push(n[2] < 0 ? [-n[0], -n[1], -n[2]] : n);
+      lines.push(L[2] > 0 ? [-L[0], -L[1], -L[2]] : L);
+    };
+    window.addEventListener(evt, on);
+    const t0 = Date.now(); let iv = null;
+    if (onTick) iv = setInterval(() => onTick(Math.max(0, Math.ceil((CLINO_MS - (Date.now() - t0)) / 1000))), 250);
+    setTimeout(() => {
+      window.removeEventListener(evt, on); if (iv) clearInterval(iv);
+      if (!normals.length) { res(null); return; }
+      const mn = _mediaVec(normals), pl = planoDeNormal(mn), disp = _dispersion(normals, mn);
+      const out = { ...pl, n: normals.length, disp };
+      if (modo === 'linea') Object.assign(out, lineaDeVector(_mediaVec(lines)));
+      res(out);
+    }, CLINO_MS);
+  });
+}
+async function medirClinoInto(entryDiv, modo) {
+  const status = entryDiv.querySelector('.est-medstatus');
+  status.textContent = '📡 Mantén el teléfono firme… 3';
+  const r = await medirEstructura(modo, s => status.textContent = '📡 Mantén firme… ' + s);
+  if (!r) { status.textContent = '⚠️ Sin sensor / permiso — ingresa los valores manualmente'; return; }
+  entryDiv.querySelector('.est-strike').value = Math.round(r.rumbo);
+  entryDiv.querySelector('.est-dip').value = Math.round(r.manteo);
+  if (modo === 'linea') {
+    entryDiv.querySelector('.est-trend').value = Math.round(r.trend);
+    entryDiv.querySelector('.est-plunge').value = Math.round(r.plunge);
   }
-
-  btn.textContent = '⏳';
-  btn.disabled = true;
-
-  // Promedio de varias lecturas para estabilizar (heading = dirección de manteo, beta = dip)
-  const headings = [], betas = [];
-  const collectReading = (e) => {
-    const h = headingFromEvent(e);
-    if (h !== null && e.beta !== null) { headings.push(h); betas.push(Math.abs(e.beta)); }
-    if (headings.length >= 4) {
-      window.removeEventListener('deviceorientation', collectReading);
-      const dipDir = circularMean(headings);
-      // Regla de la mano derecha: rumbo = dirección de manteo − 90° (manteo a la derecha del rumbo)
-      const strike = (dipDir - 90 + 360) % 360;
-      entryDiv.querySelector('.est-strike').value = strike;
-      entryDiv.querySelector('.est-dip').value = Math.min(Math.round(betas.reduce((s, b) => s + b, 0) / betas.length), 90);
-      btn.textContent = '✓';
-      btn.disabled = false;
-      setTimeout(() => { btn.textContent = '📡'; }, 2500);
-    }
-  };
-
-  window.addEventListener('deviceorientation', collectReading);
-
-  setTimeout(() => {
-    window.removeEventListener('deviceorientation', collectReading);
-    if (btn.textContent === '⏳') {
-      btn.textContent = '📡';
-      btn.disabled = false;
-      alert('No se detectó sensor de orientación. Ingresa los valores manualmente.');
-    }
-  }, 6000);
+  const conf = r.disp < 2 ? 'ALTA' : (r.disp < 5 ? 'MEDIA' : 'BAJA');
+  status.textContent = `✓ ${r.n} lecturas · ±${r.disp.toFixed(1)}° · ${conf}  →  ${Math.round(r.rumbo)}/${Math.round(r.manteo)}`
+    + (r.trend != null ? `  · L ${Math.round(r.trend)}/${Math.round(r.plunge)}` : '');
 }
 
 function getEstDipValues() {
@@ -1176,9 +1268,11 @@ function getEstDipValues() {
     .map(div => ({
       tipo:   div.querySelector('.est-tipo').value,
       strike: div.querySelector('.est-strike').value,
-      dip:    div.querySelector('.est-dip').value
+      dip:    div.querySelector('.est-dip').value,
+      trend:  div.querySelector('.est-trend')?.value || '',
+      plunge: div.querySelector('.est-plunge')?.value || ''
     }))
-    .filter(e => e.tipo || e.strike || e.dip);
+    .filter(e => e.tipo || e.strike || e.dip || e.trend || e.plunge);
 }
 
 // =====================
@@ -1393,6 +1487,7 @@ function locateGPS() {
 }
 
 function updateCoordsDisplay() {
+  markerPlaced = true;
   const ll = markerInstance.getLatLng();
   document.getElementById('coords-display').textContent =
     `📍 Lat: ${ll.lat.toFixed(6)}  Lon: ${ll.lng.toFixed(6)}`;
@@ -2300,11 +2395,50 @@ ${fotosAdicionalesHtml ? `<div style="margin-top:10px"><b>Fotografías adicional
 const RM_DB = 'catastro-rm', RM_STORE = 'rms';
 let savedRMsCache = [];
 
+const RM_DB_VERSION = 2, LINEA_STORE = 'lineas';
+let _dbPromise = null;
 function rmDbOpen() {
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const req = indexedDB.open(RM_DB, RM_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(RM_STORE)) db.createObjectStore(RM_STORE, { keyPath: 'key', autoIncrement: true });
+      if (!db.objectStoreNames.contains(LINEA_STORE)) db.createObjectStore(LINEA_STORE, { keyPath: 'id' });
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => { try { db.close(); } catch (e) {} _dbPromise = null; };
+      settled = true; resolve(db);
+    };
+    req.onerror = () => { _dbPromise = null; reject(req.error); };
+    req.onblocked = () => console.warn('IndexedDB bloqueada por otra pestaña abierta.');
+    setTimeout(() => { if (!settled) { _dbPromise = null; reject(new Error('Timeout abriendo IndexedDB')); } }, 8000);
+  });
+  return _dbPromise;
+}
+async function lineaGetAll() {
+  const db = await rmDbOpen();
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(RM_DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(RM_STORE, { keyPath: 'key', autoIncrement: true });
+    const req = db.transaction(LINEA_STORE, 'readonly').objectStore(LINEA_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function lineaPut(rec) {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(LINEA_STORE, 'readwrite').objectStore(LINEA_STORE).put(rec);
     req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function lineaDelete(id) {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(LINEA_STORE, 'readwrite').objectStore(LINEA_STORE).delete(id);
+    req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
 }
@@ -2432,6 +2566,8 @@ function resetFormForNewRM() {
   fotosData = [];
   document.getElementById('fotos-container').innerHTML = '';
   document.getElementById('btn-add-foto').style.display = '';
+  markerPlaced = false;
+  document.getElementById('coords-display').textContent = 'Sin ubicación GPS aún...';
   generateRMId().then(id => { document.getElementById('rm-id').value = id; });
   goToStep(1);
 }
@@ -2440,6 +2576,7 @@ function resetFormForNewRM() {
 function populateForm(rec) {
   const d = rec.data;
   if (d.coords && markerInstance) {
+    markerPlaced = true;
     const lng = d.coords.lng ?? d.coords.lon;
     markerInstance.setLatLng([d.coords.lat, lng]);
     mapInstance.setView([d.coords.lat, lng], mapInstance.getZoom());
@@ -2480,6 +2617,8 @@ function populateForm(rec) {
     entry.querySelector('.est-tipo').value = e.tipo || '';
     entry.querySelector('.est-strike').value = e.strike || '';
     entry.querySelector('.est-dip').value = e.dip || '';
+    entry.querySelector('.est-trend').value = e.trend || '';
+    entry.querySelector('.est-plunge').value = e.plunge || '';
   });
   fotosData = [];
   document.getElementById('fotos-container').innerHTML = '';
@@ -2574,10 +2713,26 @@ ${fotosHtml}
   <Point><coordinates>${lng},${c.lat},0</coordinates></Point>
 </Placemark>`);
     }
+    // Líneas geológicas dibujadas en el mapa -> LineString con color por tipo
+    let lineasKml = '';
+    try {
+      const lineas = await lineaGetAll();
+      lineas.forEach(l => {
+        if (!l.geom || l.geom.length < 2) return;
+        const coords = l.geom.map(p => `${(p[1]).toFixed(6)},${(p[0]).toFixed(6)},0`).join(' ');
+        const col = hexToKmlColor(LINEA_COLOR[l.tipo] || '#444');
+        lineasKml += `<Placemark>
+  <name>${esc(l.tipo || 'Línea')}${l.certeza ? ' (' + esc(l.certeza) + ')' : ''}</name>
+  <Style><LineStyle><color>${col}</color><width>3</width></LineStyle></Style>
+  <LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>
+</Placemark>\n`;
+      });
+    } catch (e) { console.warn('No se pudieron exportar líneas:', e); }
     const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
 <name>RMs del día — ${todayStr()}</name>
 ${placemarks.join('\n')}
+${lineasKml}
 </Document></kml>`;
     zip.file('doc.kml', kml);
     const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
@@ -2590,12 +2745,237 @@ ${placemarks.join('\n')}
   }
 }
 
+// ============================ TAB DE MAPA (Modo Mapa ⇄ Ficha) ============================
+// Simbología estructural SVG portada de GeoTerreno CDC (norte = arriba).
+const _rad = d => d * Math.PI / 180;
+function _uv(az) { const a = _rad(az); return [Math.sin(a), -Math.cos(a)]; }   // [este(x), norte(-y)] en pantalla
+function _hl(x1, y1, x2, y2, col) {
+  col = col || '#141414';
+  return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/>'
+       + '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + col + '" stroke-width="1.6" stroke-linecap="round"/>';
+}
+function _ht(x, y, txt, col) {
+  col = col || '#141414';
+  return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="9.5" font-weight="700" text-anchor="middle" dominant-baseline="central" stroke="#fff" stroke-width="3" paint-order="stroke" fill="' + col + '">' + txt + '</text>';
+}
+function simboloPlano(cx, cy, az, dip, col) {
+  const [sx, sy] = _uv(az), [dx, dy] = _uv(az + 90); const Ls = 15, Lt = 8;
+  let s = _hl(cx - sx * Ls, cy - sy * Ls, cx + sx * Ls, cy + sy * Ls, col);   // línea de rumbo
+  s += _hl(cx, cy, cx + dx * Lt, cy + dy * Lt, col);                          // tick de manteo (RHR)
+  if (!isNaN(dip)) s += _ht(cx + dx * (Lt + 8), cy + dy * (Lt + 8), Math.round(dip), col);
+  return s;
+}
+function simboloLinea(cx, cy, tr, pl, col) {
+  col = col || '#1a5fb4';
+  const [tx, ty] = _uv(tr); const La = 15; const px = cx + tx * La, py = cy + ty * La;
+  let s = _hl(cx, cy, px, py, col);
+  const a1 = _uv(tr + 180 + 24), a2 = _uv(tr + 180 - 24), hl = 6;             // punta de flecha
+  s += _hl(px, py, px + a1[0] * hl, py + a1[1] * hl, col);
+  s += _hl(px, py, px + a2[0] * hl, py + a2[1] * hl, col);
+  if (!isNaN(pl)) s += _ht(px + tx * 8, py + ty * 8, Math.round(pl), col);
+  return s;
+}
+function svgEstructura(e, cx, cy) {
+  const az = parseFloat(e.strike), dip = parseFloat(e.dip), tr = parseFloat(e.trend), pl = parseFloat(e.plunge);
+  const hasPlano = !isNaN(az) && !isNaN(dip), hasLinea = !isNaN(tr) && !isNaN(pl);
+  const esFalla = (e.tipo === 'Falla');
+  let s = '';
+  if (hasPlano) s += simboloPlano(cx, cy, az, dip, esFalla ? '#b02a1a' : '#141414');
+  if (hasLinea) s += simboloLinea(cx, cy, tr, pl, esFalla ? '#b02a1a' : '#1a5fb4');
+  return s;
+}
+const ZONA_CSS = { generacion: '#ff0000', runout: '#0066ff', ambas: '#00cccc' };
+function iconoRM(rec) {
+  const d = rec.data || {}; const col = ZONA_CSS[d.zona] || '#e63946';
+  let sym = ''; (d['estructuras-dip'] || []).forEach(e => { sym += svgEstructura(e, 24, 24); });
+  const html = `<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">`
+    + `<circle cx="24" cy="24" r="6" fill="${col}" stroke="#fff" stroke-width="2"/>${sym}</svg>`;
+  return L.divIcon({ html, className: 'rm-divicon', iconSize: [48, 48], iconAnchor: [24, 24] });
+}
+
+// ---- Líneas geológicas dibujables sobre el satelital ----
+const LINEA_TIPOS = ['Corona / escarpe principal', 'Límite del depósito', 'Grieta de tracción', 'Canal / trayectoria', 'Contacto litológico', 'Falla', 'Otro'];
+const LINEA_CERTEZA = ['Observado', 'Inferido', 'Cubierto'];
+const LINEA_COLOR = { 'Corona / escarpe principal': '#c0392b', 'Límite del depósito': '#d35400', 'Grieta de tracción': '#8e44ad', 'Canal / trayectoria': '#16739e', 'Contacto litológico': '#1a1a1a', 'Falla': '#c0392b', 'Otro': '#444' };
+const LINEA_DASH = { 'Observado': null, 'Inferido': '10,7', 'Cubierto': '2,7' };
+function estiloLinea(l) { return { color: LINEA_COLOR[l.tipo] || '#444', weight: 3.5, opacity: 0.95, dashArray: LINEA_DASH[l.certeza] || null }; }
+function hexToKmlColor(hex) { hex = String(hex || '#444').replace('#', ''); return 'ff' + hex.substr(4, 2) + hex.substr(2, 2) + hex.substr(0, 2); }
+
+// ---- Estado y ciclo de vida del mapa ----
+let mapaFull = null, mapaFullMarkers = null, mapaFullLines = null, mapaFullEsri = null, mapaFullSavetiles = null;
+let dibujando = false, _verts = [], _tmpLine = null, _tmpMk = [];
+
+function showView(v) {
+  const mapa = v === 'mapa';
+  document.querySelectorAll('.viewtab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  document.body.classList.toggle('map-mode', mapa);
+  document.getElementById('mapa-view').classList.toggle('active', mapa);
+  if (mapa) { initMapaFull(); renderMapaFull(); }
+}
+function initMapaFull() {
+  if (mapaFull) { setTimeout(() => mapaFull.invalidateSize(), 120); return; }
+  mapaFull = L.map('mapa-full', { center: [-33.45, -70.65], zoom: 6, zoomControl: true });
+  const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  mapaFullEsri = (typeof L.tileLayer.offline === 'function' ? L.tileLayer.offline : L.tileLayer)(ESRI_URL, { attribution: 'Tiles © Esri', maxZoom: 19, crossOrigin: true });
+  mapaFullEsri.addTo(mapaFull);
+  if (typeof L.control.savetiles === 'function') {
+    mapaFullSavetiles = L.control.savetiles(mapaFullEsri, {
+      zoomlevels: [13, 14, 15, 16, 17],
+      confirm(l, cb) { if (window.confirm('¿Descargar tiles del área visible para uso offline?\n(zooms 13-17)')) cb(); },
+      confirmRemoval(l, cb) { if (window.confirm('¿Eliminar tiles guardados?')) cb(); },
+      saveText: '⬇️', rmText: '🗑️'
+    });
+    mapaFullSavetiles.addTo(mapaFull);
+  }
+  mapaFullMarkers = L.layerGroup().addTo(mapaFull);
+  mapaFullLines = L.layerGroup().addTo(mapaFull);
+  mapaFull.on('click', onMapaFullClick);
+  setTimeout(() => mapaFull.invalidateSize(), 120);
+}
+async function renderMapaFull() {
+  if (!mapaFull) return;
+  mapaFullMarkers.clearLayers(); mapaFullLines.clearLayers();
+  const all = await rmGetAll();
+  const pts = [];
+  all.forEach(r => {
+    const c = r.data && r.data.coords; if (!c) return;
+    const lng = c.lng ?? c.lon; if (c.lat == null || lng == null) return;
+    const m = L.marker([c.lat, lng], { icon: iconoRM(r) }).addTo(mapaFullMarkers);
+    if (r.id) m.bindTooltip(r.id, { permanent: true, direction: 'bottom', offset: [0, 16], className: 'pt-label' });
+    m.on('click', ev => { L.DomEvent.stop(ev); abrirRMDesdeMapa(r); });
+    pts.push([c.lat, lng]);
+  });
+  const cc = getCoords();
+  if (cc && markerPlaced) {
+    const m = L.marker([cc.lat, cc.lng], { icon: iconoRM({ data: collectFormData() }) }).addTo(mapaFullMarkers);
+    m.bindTooltip('(RM actual)', { permanent: true, direction: 'bottom', offset: [0, 16], className: 'pt-label' });
+    pts.push([cc.lat, cc.lng]);
+  }
+  const lineas = await lineaGetAll();
+  lineas.forEach(L2 => {
+    if (!L2.geom || L2.geom.length < 2) return;
+    const pl = L.polyline(L2.geom, estiloLinea(L2)).addTo(mapaFullLines);
+    pl.on('click', ev => { if (dibujando) return; L.DomEvent.stop(ev); formLinea(L2); });
+  });
+  document.getElementById('mapa-count').textContent = all.length + ' RM';
+  if (pts.length && !dibujando) mapaFull.fitBounds(pts, { padding: [40, 40], maxZoom: 16 });
+}
+async function abrirRMDesdeMapa(rec) {
+  const full = await rmGetAll();
+  const match = full.find(r => r.key === rec.key) || rec;
+  populateForm(match);
+  showView('ficha');
+}
+function mapaFullGPS() {
+  if (!navigator.geolocation || !mapaFull) return;
+  navigator.geolocation.getCurrentPosition(
+    p => mapaFull.setView([p.coords.latitude, p.coords.longitude], 16),
+    () => alert('GPS no disponible.'), { enableHighAccuracy: true, timeout: 10000 });
+}
+function mapaFullTiles() {
+  const b = mapaFull && mapaFull.getContainer().querySelector('.leaflet-control-savetiles-save');
+  if (b) b.click(); else alert('Descarga offline no disponible. Recarga con conexión a internet.');
+}
+
+// ---- Dibujo de líneas ----
+function iniciarDibujoLinea() {
+  if (!mapaFull) return;
+  if (dibujando) { cancelarDibujo(); return; }
+  dibujando = true; _verts = [];
+  mapaFull.getContainer().style.cursor = 'crosshair';
+  bannerDibujo();
+}
+function bannerDibujo() {
+  let b = document.getElementById('draw-banner'); if (b) b.remove();
+  b = document.createElement('div'); b.id = 'draw-banner'; b.className = 'draw-banner';
+  const span = document.createElement('span');
+  span.textContent = `✏️ Toca el mapa para agregar vértices (${_verts.length})`;
+  const fin = document.createElement('button'); fin.textContent = '✓ Finalizar'; fin.style.background = '#16a34a'; fin.style.color = '#fff'; fin.onclick = finalizarDibujo;
+  const can = document.createElement('button'); can.textContent = '✕'; can.style.background = '#e63946'; can.style.color = '#fff'; can.onclick = cancelarDibujo;
+  b.append(span, fin, can);
+  document.getElementById('mapa-view').appendChild(b);
+}
+function limpiarTemp() { if (mapaFull) { if (_tmpLine) mapaFull.removeLayer(_tmpLine); _tmpMk.forEach(m => mapaFull.removeLayer(m)); } _tmpLine = null; _tmpMk = []; }
+function cancelarDibujo() {
+  dibujando = false; _verts = []; limpiarTemp();
+  if (mapaFull) mapaFull.getContainer().style.cursor = '';
+  const b = document.getElementById('draw-banner'); if (b) b.remove();
+}
+function onMapaFullClick(ev) {
+  if (!dibujando) return;
+  _verts.push([ev.latlng.lat, ev.latlng.lng]);
+  if (_tmpLine) _tmpLine.setLatLngs(_verts);
+  else _tmpLine = L.polyline(_verts, { color: '#12a4ff', weight: 3, dashArray: '5,5' }).addTo(mapaFull);
+  _tmpMk.push(L.circleMarker(ev.latlng, { radius: 4, color: '#12a4ff', fillColor: '#12a4ff', fillOpacity: 1, weight: 1 }).addTo(mapaFull));
+  bannerDibujo();
+}
+function finalizarDibujo() {
+  if (_verts.length < 2) { alert('Agrega al menos 2 puntos a la línea.'); return; }
+  const geom = _verts.slice();
+  cancelarDibujo();
+  formLinea({ id: 'L-' + Date.now(), geom, tipo: LINEA_TIPOS[0], certeza: LINEA_CERTEZA[0], _nuevo: true });
+}
+function formLinea(L2) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg,#111);color:var(--fg,#eee);border-radius:12px;padding:16px;max-width:360px;width:100%;border:1px solid var(--border,#333)';
+  const opt = (arr, sel) => arr.map(o => `<option${o === sel ? ' selected' : ''}>${o}</option>`).join('');
+  const ss = 'width:100%;padding:9px;margin:4px 0 10px;border-radius:8px;border:1px solid var(--border,#444);background:var(--surface2,#222);color:inherit';
+  box.innerHTML = `<h3 style="margin:0 0 10px">${L2._nuevo ? '➕ Nueva línea geológica' : '✏️ Editar línea'}</h3>
+    <label style="font-size:0.8rem;color:var(--muted)">Tipo</label>
+    <select id="lf-tipo" style="${ss}">${opt(LINEA_TIPOS, L2.tipo)}</select>
+    <label style="font-size:0.8rem;color:var(--muted)">Certeza del trazo</label>
+    <select id="lf-cert" style="${ss}">${opt(LINEA_CERTEZA, L2.certeza)}</select>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="lf-save" style="flex:1;padding:10px;border:none;border-radius:8px;background:#16a34a;color:#fff;cursor:pointer">💾 Guardar</button>
+      ${L2._nuevo ? '' : '<button id="lf-del" style="padding:10px 14px;border:none;border-radius:8px;background:#e63946;color:#fff;cursor:pointer">🗑️</button>'}
+      <button id="lf-cancel" style="padding:10px 14px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;cursor:pointer">Cancelar</button>
+    </div>`;
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#lf-cancel').onclick = () => ov.remove();
+  box.querySelector('#lf-save').onclick = async () => {
+    const tipo = box.querySelector('#lf-tipo').value, certeza = box.querySelector('#lf-cert').value;
+    await lineaPut({ id: L2.id, geom: L2.geom, tipo, certeza });
+    ov.remove(); renderMapaFull();
+  };
+  const del = box.querySelector('#lf-del');
+  if (del) del.onclick = async () => { if (confirm('¿Eliminar esta línea?')) { await lineaDelete(L2.id); ov.remove(); renderMapaFull(); } };
+}
+function legendaMapa() {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg,#111);color:var(--fg,#eee);border-radius:12px;padding:16px;max-width:420px;width:100%;border:1px solid var(--border,#333)';
+  box.innerHTML = `<h3 style="margin:0 0 10px">Simbología</h3>
+    <div style="font-size:0.85rem;line-height:1.6;color:var(--muted)">
+    <b style="color:#ff0000">●</b> RM zona generación · <b style="color:#0066ff">●</b> runout · <b style="color:#00cccc">●</b> ambas<br>
+    <b>—⊢ 30</b> rumbo/manteo de una estructura (tick al lado del manteo, valor en grados)<br>
+    <b>→ 40</b> lineación / estría (flecha = trend, valor = plunge)<br>
+    símbolo en <b style="color:#b02a1a">rojo</b> = estructura tipo falla<br>
+    líneas: <b style="color:#c0392b">corona</b>, <b style="color:#d35400">depósito</b>, <b style="color:#16739e">canal</b>… (guion = inferido, punteado = cubierto)<br><br>
+    Toca una RM para abrir su ficha; toca una línea para editarla.</div>
+    <button id="lg-close" style="margin-top:12px;padding:10px 14px;border:none;border-radius:8px;background:var(--red,#c0392b);color:#fff;cursor:pointer;width:100%">Cerrar</button>`;
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#lg-close').onclick = () => ov.remove();
+}
+
 // ----- Wiring -----
 document.getElementById('btn-ver-rms').addEventListener('click', openRMsModal);
 document.getElementById('rms-close').addEventListener('click', closeRMsModal);
 document.getElementById('rms-modal').addEventListener('click', e => { if (e.target.id === 'rms-modal') closeRMsModal(); });
 document.getElementById('btn-guardar-rm').addEventListener('click', saveCurrentRM);
 document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
+
+// Tab bar Ficha ⇄ Mapa + botones de la vista de mapa
+document.querySelectorAll('.viewtab').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+document.getElementById('mapa-gps').addEventListener('click', mapaFullGPS);
+document.getElementById('mapa-linea').addEventListener('click', iniciarDibujoLinea);
+document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
+document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
+document.getElementById('app-ver').textContent = APP_VER;
 
 // Iniciales del profesional: persistir y regenerar el ID sugerido al cambiar
 const inicialesEl = document.getElementById('prof-iniciales');
@@ -2682,7 +3062,23 @@ if (typeof VozTerreno !== 'undefined') {
 
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js');
+      let _recargando = false;
+      // Cuando un SW nuevo toma el control, recarga una sola vez para traer el HTML actualizado
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (_recargando) return;
+        _recargando = true;
+        location.reload();
+      });
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        // Si hay una versión nueva esperando, actívala (dispara controllerchange -> reload)
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (nw) nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) nw.postMessage({ type: 'SKIP_WAITING' });
+          });
+        });
+      });
     }
   </script>
 </body>

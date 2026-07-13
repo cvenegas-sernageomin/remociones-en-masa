@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v5';
+const CACHE_NAME = 'remociones-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -22,37 +22,54 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
+});
+
+// Permite que la página fuerce la activación del SW nuevo (auto-actualización)
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', e => {
-  // Let leaflet.offline handle Esri tile requests (IndexedDB)
-  if (e.request.url.includes('arcgisonline.com')) return;
+  if (e.request.method !== 'GET') return;
+  const req = e.request;
 
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(resp => {
+  // Dejar que leaflet.offline maneje los tiles de Esri (IndexedDB)
+  if (req.url.includes('arcgisonline.com')) return;
+
+  const esDoc = req.mode === 'navigate' || req.destination === 'document' ||
+                req.url.endsWith('/') || req.url.endsWith('index.html');
+
+  if (esDoc) {
+    // network-first para el HTML: siempre la última versión estando en línea
+    e.respondWith(
+      fetch(req).then(resp => {
         const clone = resp.clone();
-        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        caches.open(CACHE_NAME).then(c => c.put(req, clone));
+        return resp;
+      }).catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // cache-first para el resto de los assets
+  e.respondWith(
+    caches.match(req).then(cached => {
+      if (cached) return cached;
+      return fetch(req).then(resp => {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then(c => c.put(req, clone));
         return resp;
       }).catch(() => {
-        // Return a minimal offline fallback for navigation requests
-        if (e.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
+        if (req.mode === 'navigate') return caches.match('./index.html');
       });
     })
   );
