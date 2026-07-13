@@ -845,6 +845,9 @@ body.map-mode #nav-buttons { display: none !important; }
   <p id="loading-msg">Generando KMZ...</p>
 </div>
 
+  <!-- Módulo de dictado por voz: DEBE cargar ANTES del script principal (que llama a VozTerreno.init) -->
+  <script src="https://cvenegas-sernageomin.github.io/voz-terreno/voz-module.js"></script>
+
   <script>
 // =====================
 // CONSTANTES Y ESTADO
@@ -884,7 +887,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v8';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v9';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3105,8 +3108,6 @@ if (typeof VozTerreno !== 'undefined') {
   });
 }
   </script>
-
-  <script src="https://cvenegas-sernageomin.github.io/voz-terreno/voz-module.js"></script>
 
   <script>
     if ('serviceWorker' in navigator) {
