@@ -12,8 +12,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- leaflet.offline -->
-  <script src="https://unpkg.com/leaflet.offline@2.2.0/dist/leaflet.offline.js"></script>
+  <!-- idb + leaflet.offline VENDORIZADOS: el dist de unpkg da 404 y sin idb no registra
+       L.tileLayer.offline/savetiles. idb debe ir ANTES (dependencia de leaflet.offline). -->
+  <script src="vendor/idb.js"></script>
+  <script src="vendor/leaflet.offline.js"></script>
 
   <!-- JSZip -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -882,7 +884,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v7';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v8';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1417,6 +1419,86 @@ document.getElementById('autor').addEventListener('input', function() {
 // =====================
 // MAPA LEAFLET + GPS
 // =====================
+// ============================ Capas base + descarga offline por zoom ============================
+// Capas base: satelital + relieve/topo con curvas de nivel. Todas con CORS para guardar tiles offline.
+// leaflet.offline SÓLO registra L.tileLayer.offline/savetiles si idb está cargado (ver <head>).
+const ESRI_IMG_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const BASES = [
+  { nombre: '🛰️ Satelital (Esri)', url: ESRI_IMG_URL, attr: 'Tiles © Esri', maxz: 19 },
+  { nombre: '⛰️ Relieve Topo (Esri)', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', attr: 'Tiles © Esri', maxz: 19 },
+  { nombre: '🗻 OpenTopoMap (curvas de nivel)', url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: '© OpenTopoMap (CC-BY-SA)', maxz: 17 },
+];
+// Crea las capas base + selector + control de descarga offline enlazado a la capa activa.
+// Devuelve el control savetiles (o null si leaflet.offline no está disponible).
+function crearCapasBase(map) {
+  const capas = {};
+  BASES.forEach((b, i) => {
+    const tl = (typeof L.tileLayer.offline === 'function' ? L.tileLayer.offline : L.tileLayer)(b.url,
+      { attribution: b.attr, maxZoom: 19, maxNativeZoom: b.maxz, crossOrigin: true, subdomains: 'abc' });
+    tl._maxz = b.maxz; tl._nombreBase = b.nombre;
+    capas[b.nombre] = tl;
+    if (i === 0) tl.addTo(map);
+  });
+  L.control.layers(capas, null, { position: 'topright' }).addTo(map);
+  if (typeof L.control.savetiles === 'function') {
+    const st = L.control.savetiles(capas[BASES[0].nombre], {
+      zoomlevels: [13, 14, 15, 16, 17],
+      confirm(layer, cb) {
+        const zl = st.options.zoomlevels || [];
+        const n = (layer && layer._tilesforSave) ? layer._tilesforSave.length + ' ' : '';
+        if (window.confirm('¿Descargar ' + n + 'tiles de ' + (st._nombreBase || 'la capa actual') + '\n(zoom ' + zl[0] + '–' + zl[zl.length - 1] + ') para uso offline?')) cb();
+      },
+      confirmRemoval(layer, cb) { if (window.confirm('¿Borrar tiles guardados de esta capa?')) cb(); },
+      saveText: '⬇️', rmText: '🗑️'
+    });
+    st._maxz = 19; st._nombreBase = BASES[0].nombre;
+    st.addTo(map);
+    // al cambiar de capa base, el control de descarga apunta a la capa activa
+    map.on('baselayerchange', e => { st.setLayer(e.layer); st._maxz = e.layer._maxz || 19; st._nombreBase = e.layer._nombreBase || ''; });
+    return st;
+  }
+  return null;
+}
+// Diálogo para elegir el zoom máximo antes de descargar (área visible). El plugin lee options.zoomlevels al guardar.
+function descargarTilesConZoom(st, mapObj) {
+  const cont = mapObj && mapObj.getContainer();
+  const a = (cont && cont.querySelector('a.savetiles')) || document.querySelector('a.savetiles');
+  if (!a || !st) { alert('Descarga offline no disponible.\nRecarga la página con conexión a internet para activarla.'); return; }
+  const maxz = st._maxz || 19;
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg,#111);color:var(--fg,#eee);border-radius:12px;padding:16px;max-width:420px;width:100%;border:1px solid var(--border,#333)';
+  const opciones = [
+    [17, 'Zoom 13–17 · estándar (liviano)', 'var(--surface2,#222)'],
+    [18, 'Zoom 13–18 · detalle (~4× más tiles)', '#1a5fb4'],
+    [19, 'Zoom 13–19 · máximo detalle (~16× más)', '#c2410c'],
+  ].filter(([mz]) => mz <= maxz);
+  box.innerHTML = `<h3 style="margin:0 0 8px">⬇️ Descargar tiles offline</h3>
+    <div style="font-size:0.82rem;color:var(--muted);line-height:1.5">Capa: <b>${st._nombreBase || 'actual'}</b>. Se descarga el <b>área visible</b>. Cada nivel extra ≈ <b>4× más</b> tiles; para z18–19 acércate primero al sector.${maxz < 19 ? '<br>⚠️ Esta capa llega hasta <b>z' + maxz + '</b>.' : ''}</div>
+    <div id="dz-btns" style="display:flex;flex-direction:column;gap:8px;margin-top:12px"></div>`;
+  const btns = box.querySelector('#dz-btns');
+  opciones.forEach(([mz, txt, col]) => {
+    const btn = document.createElement('button');
+    btn.textContent = txt;
+    btn.style.cssText = `padding:11px;border:none;border-radius:8px;background:${col};color:#fff;cursor:pointer;font-size:0.9rem`;
+    btn.onclick = () => {
+      const zl = []; for (let z = 13; z <= mz; z++) zl.push(z);
+      st.options.zoomlevels = zl;
+      ov.remove(); a.click();
+    };
+    btns.appendChild(btn);
+  });
+  const cancel = document.createElement('button');
+  cancel.textContent = 'Cancelar';
+  cancel.style.cssText = 'padding:10px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:inherit;cursor:pointer;margin-top:4px';
+  cancel.onclick = () => ov.remove();
+  btns.appendChild(cancel);
+  ov.appendChild(box); document.body.appendChild(ov);
+}
+
+let mapSavetiles = null;   // control de descarga del mapa del wizard (Paso 1)
 function initMap() {
   mapInstance = L.map('map', {
     center: [-33.45, -70.65],
@@ -1424,31 +1506,7 @@ function initMap() {
     zoomControl: true
   });
 
-  const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-
-  const esriTile = (typeof L.tileLayer.offline === 'function' ? L.tileLayer.offline : L.tileLayer)(ESRI_URL, {
-    attribution: 'Tiles © Esri',
-    maxZoom: 19,
-    crossOrigin: true
-  });
-  esriTile.addTo(mapInstance);
-
-  if (typeof L.control.savetiles === 'function') {
-    const savetiles = L.control.savetiles(esriTile, {
-      zoomlevels: [13, 14, 15, 16, 17],
-      confirm(layer, successCallback) {
-        if (window.confirm('¿Descargar tiles satelitales de esta área para uso offline?\n(zooms 13-17)')) {
-          successCallback();
-        }
-      },
-      confirmRemoval(layer, successCallback) {
-        if (window.confirm('¿Eliminar tiles guardados?')) successCallback();
-      },
-      saveText: '⬇️ Guardar tiles offline',
-      rmText: '🗑️ Borrar tiles'
-    });
-    savetiles.addTo(mapInstance);
-  }
+  mapSavetiles = crearCapasBase(mapInstance);
 
   markerInstance = L.marker([-33.45, -70.65], { draggable: true }).addTo(mapInstance);
   markerInstance.on('dragend', updateCoordsDisplay);
@@ -1486,12 +1544,7 @@ if (navigator.onLine) {
 }
 
 document.getElementById('btn-download-tiles').addEventListener('click', () => {
-  const saveBtn = document.querySelector('.leaflet-control-savetiles-save');
-  if (saveBtn) {
-    saveBtn.click();
-  } else {
-    alert('Función de descarga offline no disponible. Recarga la página con conexión a internet.');
-  }
+  descargarTilesConZoom(mapSavetiles, mapInstance);
 });
 
 window.addEventListener('online', () => {
@@ -2809,7 +2862,7 @@ function estiloLinea(l) { return { color: LINEA_COLOR[l.tipo] || '#444', weight:
 function hexToKmlColor(hex) { hex = String(hex || '#444').replace('#', ''); return 'ff' + hex.substr(4, 2) + hex.substr(2, 2) + hex.substr(0, 2); }
 
 // ---- Estado y ciclo de vida del mapa ----
-let mapaFull = null, mapaFullMarkers = null, mapaFullLines = null, mapaFullEsri = null, mapaFullSavetiles = null;
+let mapaFull = null, mapaFullMarkers = null, mapaFullLines = null, mapaFullSavetiles = null;
 let dibujando = false, _verts = [], _tmpLine = null, _tmpMk = [];
 
 function showView(v) {
@@ -2822,18 +2875,7 @@ function showView(v) {
 function initMapaFull() {
   if (mapaFull) { setTimeout(() => mapaFull.invalidateSize(), 120); return; }
   mapaFull = L.map('mapa-full', { center: [-33.45, -70.65], zoom: 6, zoomControl: true });
-  const ESRI_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-  mapaFullEsri = (typeof L.tileLayer.offline === 'function' ? L.tileLayer.offline : L.tileLayer)(ESRI_URL, { attribution: 'Tiles © Esri', maxZoom: 19, crossOrigin: true });
-  mapaFullEsri.addTo(mapaFull);
-  if (typeof L.control.savetiles === 'function') {
-    mapaFullSavetiles = L.control.savetiles(mapaFullEsri, {
-      zoomlevels: [13, 14, 15, 16, 17],
-      confirm(l, cb) { if (window.confirm('¿Descargar tiles del área visible para uso offline?\n(zooms 13-17)')) cb(); },
-      confirmRemoval(l, cb) { if (window.confirm('¿Eliminar tiles guardados?')) cb(); },
-      saveText: '⬇️', rmText: '🗑️'
-    });
-    mapaFullSavetiles.addTo(mapaFull);
-  }
+  mapaFullSavetiles = crearCapasBase(mapaFull);
   mapaFullMarkers = L.layerGroup().addTo(mapaFull);
   mapaFullLines = L.layerGroup().addTo(mapaFull);
   mapaFull.on('click', onMapaFullClick);
@@ -2880,8 +2922,7 @@ function mapaFullGPS() {
     () => alert('GPS no disponible.'), { enableHighAccuracy: true, timeout: 10000 });
 }
 function mapaFullTiles() {
-  const b = mapaFull && mapaFull.getContainer().querySelector('.leaflet-control-savetiles-save');
-  if (b) b.click(); else alert('Descarga offline no disponible. Recarga con conexión a internet.');
+  descargarTilesConZoom(mapaFullSavetiles, mapaFull);
 }
 
 // ---- Dibujo de líneas ----
