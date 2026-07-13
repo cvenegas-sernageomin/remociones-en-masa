@@ -887,7 +887,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v9';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v10';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2330,11 +2330,9 @@ async function generatePDF(record) {
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #111; padding: 15mm 18mm; }
-.logo-bar { display:flex; align-items:flex-start; gap:14px; margin-bottom:10px; }
-.flag { display:flex; flex-direction:column; width:52px; }
-.flag .red { background:#d52b1e; height:18px; }
-.flag .blue { background:#003876; height:18px; margin-top:2px; }
-.logo-text { font-size:10pt; font-weight:bold; line-height:1.35; }
+.membrete { margin-bottom:12px; }
+.gob-mark { width:46mm; height:auto; display:block; }
+.gob-tag { font-size:9pt; font-weight:bold; letter-spacing:0.4px; color:#25306B; margin-top:5px; }
 .titulo-minuta { text-align:center; font-weight:bold; font-size:11pt; margin-bottom:2px; text-decoration:underline; }
 .titulo-inst { text-align:center; font-size:9.5pt; margin-bottom:2px; }
 .titulo-resumen { text-align:center; font-weight:bold; font-size:10pt; margin-bottom:8px; }
@@ -2356,12 +2354,17 @@ table.main th { background:#ddd; font-weight:bold; text-align:left; }
 .conc-text li { margin-bottom:4px; text-align:justify; }
 .footer-sig { text-align:right; font-size:9.5pt; margin-top:10px; font-weight:bold; }
 .refs { font-size:8.5pt; margin-top:10px; color:#333; }
-@media print { body { padding:10mm 14mm; } @page { margin:8mm; } }
+/* @page margin:0 evita que el navegador imprima su encabezado con la URL/fecha; los márgenes los da el padding del body */
+@media print { body { padding:12mm 15mm; } @page { margin:0; } }
 </style></head><body>
 
-<div class="logo-bar">
-  <div class="flag"><div class="red"></div><div class="blue"></div></div>
-  <div class="logo-text">Servicio Nacional<br>de Geología y<br>Minería</div>
+<div class="membrete">
+  <svg class="gob-mark" viewBox="0 0 200 26" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="0" width="102" height="26" fill="#006BB9"/>
+    <rect x="102" y="0" width="98" height="26" fill="#FF1D3D"/>
+    <polygon points="102,2 104.59,9.44 112.46,9.60 106.19,14.36 108.47,21.90 102,17.4 95.53,21.90 97.82,14.36 91.54,9.60 99.41,9.44" fill="#ffffff"/>
+  </svg>
+  <div class="gob-tag">SERNAGEOMIN &nbsp;·&nbsp; GEOLOGÍA APLICADA</div>
 </div>
 
 <div class="titulo-minuta">MINUTA ATG FLASH ${regionCorta} XXXX</div>
