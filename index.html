@@ -915,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v12';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v13';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3074,6 +3074,7 @@ function parseEstacionesKml(texto) {
     if (!isFinite(lat) || !isFinite(lon)) continue;
     const styleEl = pm.getElementsByTagName('styleUrl')[0];
     const estilo = styleEl ? styleEl.textContent.replace('#', '').trim() : 'gris';
+    if (estilo === 'gris') continue;                          // "sin dato": estación sin datos recientes, se omite
     const nameEl = pm.getElementsByTagName('name')[0];
     const descEl = pm.getElementsByTagName('description')[0];
     out.push({ lat, lon, estilo, nombre: nameEl ? nameEl.textContent : '', desc: descEl ? descEl.textContent : '' });
