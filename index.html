@@ -915,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v13';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v14';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2980,6 +2980,9 @@ const EST_KML_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/aler
 const EST_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h (el cron de alertas-redes actualiza ~2-5 h)
 const EST_COLOR = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d', gris: '#8a8a8a' };
 const EST_RADIO = { verde: 4, amarillo: 6, rojo: 8, gris: 3 };
+// Redes con feed roto que nunca cargan lluvia real (se omiten). DGA: vismet devuelve
+// 0.0 fijo para toda la red DGA (verificado en alertas-redes, sin alternativa sin CAPTCHA).
+const EST_REDES_EXCLUIR = ['DGA'];
 
 function showView(v) {
   const mapa = v === 'mapa';
@@ -3077,7 +3080,10 @@ function parseEstacionesKml(texto) {
     if (estilo === 'gris') continue;                          // "sin dato": estación sin datos recientes, se omite
     const nameEl = pm.getElementsByTagName('name')[0];
     const descEl = pm.getElementsByTagName('description')[0];
-    out.push({ lat, lon, estilo, nombre: nameEl ? nameEl.textContent : '', desc: descEl ? descEl.textContent : '' });
+    const desc = descEl ? descEl.textContent : '';
+    const red = (/Red:\s*([^\s<|&]+)/.exec(desc) || [, ''])[1];
+    if (EST_REDES_EXCLUIR.includes(red)) continue;            // red con feed roto (p.ej. DGA), no aporta dato
+    out.push({ lat, lon, estilo, nombre: nameEl ? nameEl.textContent : '', desc, red });
   }
   // timestamp del set (nombre del Document: "... - 2026-07-14T11:31:22Z")
   const docName = (doc.getElementsByTagName('name')[0] || {}).textContent || '';
