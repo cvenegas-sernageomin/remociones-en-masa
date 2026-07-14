@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v18';
+const CACHE_NAME = 'remociones-v19';
 const ASSETS = [
   './',
   './index.html',
@@ -50,6 +50,9 @@ self.addEventListener('fetch', e => {
   // Estaciones meteorológicas: KML del visor de alertas + gráficos QuickChart
   // van SIEMPRE a la red (datos en vivo; no cachear o el refresco de 3 h serviría datos viejos)
   if (req.url.includes('raw.githubusercontent.com') || req.url.includes('quickchart.io')) return;
+
+  // Minutas ATG Flash: servicio REST de ArcGIS (features + adjuntos PDF) → siempre a la red
+  if (req.url.includes('services1.arcgis.com')) return;
 
   const esDoc = req.mode === 'navigate' || req.destination === 'document' ||
                 req.url.endsWith('/') || req.url.endsWith('index.html');

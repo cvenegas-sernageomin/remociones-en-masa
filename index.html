@@ -847,6 +847,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="mapa-linea">✏️ Línea</button>
     <button class="map-btn" id="mapa-tiles">⬇️ Tiles</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
+    <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
   </div>
@@ -915,7 +916,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v18';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v19';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3126,6 +3127,11 @@ let mapaFull = null, mapaFullMarkers = null, mapaFullLines = null, mapaFullSavet
 let dibujando = false, _verts = [], _tmpLine = null, _tmpMk = [];
 // --- Capa de estaciones meteorológicas (lee el mismo red_alertas.kml del visor de alertas) ---
 let estLayer = null, estCanvas = null, estOn = false, estData = null, estTs = 0, estTimer = null, estCargando = false;
+// --- Capa de Minutas Técnicas ATG Flash (servicio oficial SERNAGEOMIN; PDF directo del servidor) ---
+let minLayer = null, minCanvas = null, minOn = false, minData = null, minTs = 0, minCargando = false;
+const MIN_SVC = 'https://services1.arcgis.com/OyjvVdFTl5hfSdX3/arcgis/rest/services/minutasATG_Flash/FeatureServer/0';
+const MIN_OUTF = 'OBJECTID,Nombre_Minuta,Fecha_evento,Tipo,Detonante,REGION,PROVINCIA,COMUNA';
+const MIN_MAXAGE = 6 * 60 * 60 * 1000;   // se recargan cada 6 h dentro de la sesión (crecen lento)
 const EST_KML_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/alertas-redes/live/red_alertas.kml';
 const EST_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h (el cron de alertas-redes actualiza ~2-5 h)
 const EST_COLOR = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d', gris: '#8a8a8a' };
@@ -3149,6 +3155,8 @@ function initMapaFull() {
   mapaFullLines = L.layerGroup().addTo(mapaFull);
   estCanvas = L.canvas({ padding: 0.5 });          // renderer canvas: pinta ~1700 estaciones sin lag
   estLayer = L.layerGroup();                        // se agrega al mapa solo al activar el toggle
+  minCanvas = L.canvas({ padding: 0.5 });          // renderer canvas para las minutas ATG
+  minLayer = L.layerGroup();
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
 }
@@ -3309,6 +3317,108 @@ function toggleEstaciones() {
     if (estTimer) { clearInterval(estTimer); estTimer = null; }
     mapaFull.removeLayer(estLayer);
     estBtnEstado('🌧️ Estaciones', false);
+  }
+}
+
+// ---- Minutas Técnicas ATG Flash (capa oficial SERNAGEOMIN) ----
+// El campo Tipo viene en texto libre (81 variantes); se agrupa por palabra clave para el color.
+function minFamiliaColor(t) {
+  const s = (t || '').toLowerCase();
+  if (/flujo|aluvi|barro|lodo|detrit/.test(s)) return '#e8862a';   // flujo / aluvión
+  if (/ca[ií]da|volcam/.test(s))               return '#e5534b';   // caída / volcamiento de roca
+  if (/desliza|desplaza|deslaza/.test(s))      return '#3b82f6';   // deslizamiento
+  if (/reptaci/.test(s))                        return '#a371f7';   // reptación
+  if (/erosi|desborde|grieta/.test(s))          return '#3fb950';   // erosión / otros
+  return '#9aa4b0';                                                 // sin clasificar
+}
+function minBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-minutas');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+function minPopup(m) {
+  const e = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const pdfs = m.pdfs.length
+    ? m.pdfs.map((p, i) => `<a href="${e(p.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;padding:8px 12px;background:#1f6feb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:.82rem">📄 Descargar PDF${m.pdfs.length > 1 ? ' ' + (i + 1) : ''}</a>`).join(' ')
+    : '<div style="color:#999;font-size:.78rem;margin-top:6px">Sin PDF adjunto</div>';
+  return `<div style="font-size:.83rem;line-height:1.5"><b>${e(m.nombre)}</b><br>`
+    + `<span style="color:#666">Fecha:</span> ${e(m.fecha)}<br>`
+    + `<span style="color:#666">Tipo:</span> ${e(m.tipo)}<br>`
+    + `<span style="color:#666">Detonante:</span> ${e(m.detonante)}<br>`
+    + `<span style="color:#666">Ubicación:</span> ${e(m.comuna)}, ${e(m.region)}`
+    + pdfs + `</div>`;
+}
+function renderMinutas() {
+  if (!minLayer) return;
+  minLayer.clearLayers();
+  (minData || []).forEach(m => {
+    const cm = L.circleMarker([m.lat, m.lon], {
+      renderer: minCanvas, radius: 6, color: '#fff', weight: 1, fillColor: m.color, fillOpacity: 0.9
+    });
+    cm.bindPopup(() => minPopup(m), { maxWidth: 280 });
+    minLayer.addLayer(cm);
+  });
+}
+async function cargarMinutas(forzar) {
+  if (minCargando) return;
+  const fresco = minData && (Date.now() - minTs) < MIN_MAXAGE;
+  if (fresco && !forzar) { renderMinutas(); return; }
+  minCargando = true;
+  minBtnEstado('⏳ Minutas', true);
+  toastMapa('Descargando minutas…', 0);
+  try {
+    // 1) features (paginado por si el servicio crece)
+    let feats = [], offset = 0;
+    for (;;) {
+      const u = `${MIN_SVC}/query?where=1%3D1&outFields=${encodeURIComponent(MIN_OUTF)}&outSR=4326&returnGeometry=true&resultOffset=${offset}&resultRecordCount=1000&f=json`;
+      const d = await (await fetch(u, { cache: 'no-store' })).json();
+      if (d.error) throw new Error(d.error.message || 'error REST');
+      feats = feats.concat(d.features || []);
+      if (!d.exceededTransferLimit || !(d.features || []).length) break;
+      offset += d.features.length;
+    }
+    // 2) adjuntos PDF (todos de una) → OBJECTID → [{id,name}]
+    const att = {};
+    try {
+      const da = await (await fetch(`${MIN_SVC}/queryAttachments?definitionExpression=1%3D1&attachmentTypes=application/pdf&f=json`, { cache: 'no-store' })).json();
+      (da.attachmentGroups || []).forEach(g => { att[g.parentObjectId] = (g.attachmentInfos || []).filter(a => /pdf/i.test(a.contentType || a.name || '')); });
+    } catch (err) { console.warn('Minutas adjuntos:', err); }
+    minData = feats.filter(f => f.geometry && f.geometry.x != null).map(f => {
+      const a = f.attributes;
+      return {
+        oid: a.OBJECTID, nombre: (a.Nombre_Minuta || '(sin nombre)').replace(/\+/g, ' ').trim(),
+        lat: f.geometry.y, lon: f.geometry.x,
+        fecha: a.Fecha_evento ? new Date(a.Fecha_evento).toISOString().slice(0, 10) : '—',
+        tipo: a.Tipo || '—', detonante: a.Detonante || '—',
+        region: a.REGION || '—', provincia: a.PROVINCIA || '—', comuna: a.COMUNA || '—',
+        color: minFamiliaColor(a.Tipo),
+        pdfs: (att[a.OBJECTID] || []).map(x => ({ url: `${MIN_SVC}/${a.OBJECTID}/attachments/${x.id}`, name: x.name }))
+      };
+    });
+    minTs = Date.now();
+    renderMinutas();
+    const conPdf = minData.filter(m => m.pdfs.length).length;
+    toastMapa('📄 ' + minData.length + ' minutas · ' + conPdf + ' con PDF');
+  } catch (err) {
+    console.warn('Minutas:', err);
+    toastMapa('⚠️ No se pudieron cargar las minutas (¿sin conexión?)');
+    minOn = false;
+  } finally {
+    minCargando = false;
+    minBtnEstado('📄 Minutas', minOn);
+  }
+}
+function toggleMinutas() {
+  if (!mapaFull) return;
+  minOn = !minOn;
+  if (minOn) {
+    minLayer.addTo(mapaFull);
+    minBtnEstado('📄 Minutas', true);
+    cargarMinutas(false);
+  } else {
+    mapaFull.removeLayer(minLayer);
+    minBtnEstado('📄 Minutas', false);
   }
 }
 
@@ -3492,6 +3602,7 @@ document.getElementById('mapa-gps').addEventListener('click', mapaFullGPS);
 document.getElementById('mapa-linea').addEventListener('click', iniciarDibujoLinea);
 document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
+document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
 document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
 document.getElementById('app-ver').textContent = APP_VER;
 
