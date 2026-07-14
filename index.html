@@ -834,7 +834,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
       <input type="file" id="input-backup" accept=".json,application/json" style="display:none">
     </div>
-    <p style="font-size:0.72rem;color:var(--muted);margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). Guárdalo en el teléfono o PC; con «Abrir respaldo» puedes recargarlo cuando quieras y verlo en el mapa, incluso en otro dispositivo.</p>
+    <p style="font-size:0.72rem;color:var(--muted);margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras y lo ves en el mapa, incluso en otro dispositivo.</p>
     <div id="rms-list"></div>
   </div>
 </div>
@@ -915,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v17';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v18';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2229,6 +2229,44 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Pide al usuario DÓNDE guardar (diálogo "Guardar como" en PC/Chromium).
+// Debe llamarse DENTRO del gesto del usuario (antes de trabajo async pesado),
+// por eso devuelve un "handle" que luego se escribe con writeHandle().
+// Devuelve: handle | 'cancel' (el usuario canceló) | null (no soportado → usar compartir/descargar).
+async function pickSaveHandle(suggestedName, mime, ext) {
+  if (!window.showSaveFilePicker) return null;
+  try {
+    return await window.showSaveFilePicker({
+      suggestedName,
+      types: [{ description: 'Archivo', accept: { [mime]: [ext] } }]
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') return 'cancel';
+    return null;
+  }
+}
+async function writeHandle(handle, blob) {
+  const w = await handle.createWritable();
+  await w.write(blob);
+  await w.close();
+}
+// Móvil: abre la hoja de compartir (Drive, correo, WhatsApp, otro equipo…).
+// Si no hay compartir de archivos, cae a descarga normal.
+// Devuelve 'shared' | 'cancel' | 'download'.
+async function shareOrDownload(blob, filename, mime) {
+  try {
+    const file = new File([blob], filename, { type: mime || blob.type || 'application/octet-stream' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: filename });
+      return 'shared';
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return 'cancel';
+  }
+  downloadBlob(blob, filename);
+  return 'download';
+}
+
 document.getElementById('btn-generate').addEventListener('click', () => generateKMZ());
 
 // =====================
@@ -2922,10 +2960,12 @@ async function renderRMsList() {
   const bs = 'padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.82rem';
   list.innerHTML = savedRMsCache.map(r => {
     const s = r.summary || {};
+    const titulo = s.localidad || r.id || 'RM sin nombre';
+    const sub = [s.tipo, s.fecha].filter(Boolean).map(escapeHtmlJS).join(' · ') || '—';
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
-      <div style="font-weight:600">${escapeHtmlJS(r.id)}</div>
-      <div style="font-size:0.82rem;color:var(--muted);margin:2px 0">${escapeHtmlJS(s.tipo || '—')} · ${escapeHtmlJS(s.localidad || 'sin localidad')}</div>
-      <div style="font-size:0.72rem;color:var(--muted)">Guardada: ${new Date(r.savedAt).toLocaleString('es-CL')}</div>
+      <div style="font-weight:600;word-break:break-word">${escapeHtmlJS(titulo)}</div>
+      <div style="font-size:0.82rem;color:var(--muted);margin:2px 0">${sub}</div>
+      <div style="font-size:0.7rem;color:var(--muted);opacity:.85">${escapeHtmlJS(r.id)} · guardada ${new Date(r.savedAt).toLocaleDateString('es-CL')}</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
         <button type="button" data-act="abrir" data-key="${r.key}" style="${bs}">✏️ Abrir</button>
         <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
@@ -3366,23 +3406,42 @@ function _blobToDataURL(blob) {
 async function _dataURLToBlob(dataUrl) {
   const r = await fetch(dataUrl); return await r.blob();
 }
+// Arma el blob del respaldo (todas las RM + líneas, con fotos embebidas). Separado para poder probarlo.
+async function buildBackupBlob() {
+  const rms = await rmGetAll();
+  const lineas = await lineaGetAll();
+  const rmsSer = [];
+  for (const r of rms) {
+    const fotos = [];
+    for (const f of (r.fotos || [])) {
+      fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : null });
+    }
+    rmsSer.push({ ...r, fotos });
+  }
+  const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), rms: rmsSer, lineas };
+  return new Blob([JSON.stringify(backup)], { type: 'application/json' });
+}
+
 async function exportBackup() {
+  const filename = `respaldo_remociones_${todayStr()}.json`;
+  // 1) En PC: pedir DÓNDE guardar ahora (con el gesto del click, antes del trabajo async)
+  const handle = await pickSaveHandle(filename, 'application/json', '.json');
+  if (handle === 'cancel') return;
+
   const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
   loading.classList.add('open'); lmsg.textContent = 'Preparando respaldo...';
   try {
-    const rms = await rmGetAll();
-    const lineas = await lineaGetAll();
-    const rmsSer = [];
-    for (const r of rms) {
-      const fotos = [];
-      for (const f of (r.fotos || [])) {
-        fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : null });
-      }
-      rmsSer.push({ ...r, fotos });
+    const blob = await buildBackupBlob();
+    if (handle) {
+      await writeHandle(handle, blob);
+      loading.classList.remove('open');
+      alert('Respaldo guardado en la ubicación que elegiste.');
+      return;
     }
-    const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), rms: rmsSer, lineas };
-    const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
-    downloadBlob(blob, `respaldo_remociones_${todayStr()}.json`);
+    // 2) En móvil: compartir (Drive, correo, WhatsApp, otro equipo…); si no, descargar
+    loading.classList.remove('open');
+    const r = await shareOrDownload(blob, filename, 'application/json');
+    if (r === 'download') alert('Respaldo descargado. Está en la carpeta de Descargas; desde ahí puedes compartirlo.');
   } catch (e) {
     alert('No se pudo generar el respaldo: ' + e.message); console.error(e);
   } finally { loading.classList.remove('open'); }
