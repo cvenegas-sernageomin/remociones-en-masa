@@ -915,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v14';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v15';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3083,13 +3083,30 @@ function parseEstacionesKml(texto) {
     const desc = descEl ? descEl.textContent : '';
     const red = (/Red:\s*([^\s<|&]+)/.exec(desc) || [, ''])[1];
     if (EST_REDES_EXCLUIR.includes(red)) continue;            // red con feed roto (p.ej. DGA), no aporta dato
-    out.push({ lat, lon, estilo, nombre: nameEl ? nameEl.textContent : '', desc, red });
+    const nombre = nameEl ? nameEl.textContent : '';
+    const base = nombre.replace(/\s*-\s*[\d.]+\s*mm\/h.*$/, '').trim();   // nombre sin " - N mm/h"
+    out.push({ lat, lon, estilo, nombre, desc, red, base });
   }
+  // Dedup: una misma estación física puede venir 2 veces en el KML —
+  //  (a) DMC en la Capa 1 "DMC" (solo precip) + la Capa 2 "EMAs DMC" (precip + temp + isoterma), o
+  //  (b) la misma estación compartida por dos redes (p.ej. Agromet y FDF en el mismo punto).
+  // Se agrupa por nombre+coordenada exacta y se conserva la versión con MÁS datos de
+  // PRECIPITACIÓN (lo que importa para remociones; la isoterma NO se prioriza):
+  //  1º trae gráfico de precipitación (muestra la cantidad de lluvia), 2º (desempate) desc más larga.
+  // Estaciones distintas con el mismo nombre pero otra coordenada NO se tocan (clave distinta).
+  const puntaje = e => (/quickchart/.test(e.desc) ? 1e6 : 0) + (e.desc ? e.desc.length : 0);
+  const mejores = new Map();
+  out.forEach(e => {
+    const k = e.base + '|' + e.lat.toFixed(4) + ',' + e.lon.toFixed(4);
+    const prev = mejores.get(k);
+    if (!prev || puntaje(e) > puntaje(prev)) mejores.set(k, e);
+  });
+  const dedup = [...mejores.values()];
   // timestamp del set (nombre del Document: "... - 2026-07-14T11:31:22Z")
   const docName = (doc.getElementsByTagName('name')[0] || {}).textContent || '';
   const mts = docName.match(/(\d{4}-\d{2}-\d{2}T[\d:]+Z)/);
-  out._fecha = mts ? mts[1] : null;
-  return out;
+  dedup._fecha = mts ? mts[1] : null;
+  return dedup;
 }
 function renderEstaciones() {
   if (!estLayer) return;
