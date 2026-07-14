@@ -915,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v15';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v16';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1317,8 +1317,9 @@ const cardinalDir = (az) => {
 };
 
 // Crea un item de foto. `existing` = {blob, desc, azimuth} para recargar una RM guardada.
+const MAX_FOTOS = 8;
 function addFotoItem(existing) {
-  if (fotosData.length >= 5) return;
+  if (fotosData.length >= MAX_FOTOS) return;
   const idx = fotosData.length;
   fotosData.push(existing ? { ...existing } : { blob: null, desc: '', azimuth: null });
 
@@ -1399,7 +1400,7 @@ function addFotoItem(existing) {
     fotosData[idx].desc = this.value;
   });
 
-  if (fotosData.length >= 5) {
+  if (fotosData.length >= MAX_FOTOS) {
     document.getElementById('btn-add-foto').style.display = 'none';
   }
 }
