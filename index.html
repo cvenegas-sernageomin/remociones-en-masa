@@ -846,6 +846,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="mapa-gps">📡 GPS</button>
     <button class="map-btn" id="mapa-linea">✏️ Línea</button>
     <button class="map-btn" id="mapa-tiles">⬇️ Tiles</button>
+    <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
   </div>
@@ -914,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v11';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v12';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2973,6 +2974,12 @@ function hexToKmlColor(hex) { hex = String(hex || '#444').replace('#', ''); retu
 // ---- Estado y ciclo de vida del mapa ----
 let mapaFull = null, mapaFullMarkers = null, mapaFullLines = null, mapaFullSavetiles = null;
 let dibujando = false, _verts = [], _tmpLine = null, _tmpMk = [];
+// --- Capa de estaciones meteorológicas (lee el mismo red_alertas.kml del visor de alertas) ---
+let estLayer = null, estCanvas = null, estOn = false, estData = null, estTs = 0, estTimer = null, estCargando = false;
+const EST_KML_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/alertas-redes/live/red_alertas.kml';
+const EST_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h (el cron de alertas-redes actualiza ~2-5 h)
+const EST_COLOR = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d', gris: '#8a8a8a' };
+const EST_RADIO = { verde: 4, amarillo: 6, rojo: 8, gris: 3 };
 
 function showView(v) {
   const mapa = v === 'mapa';
@@ -2987,6 +2994,8 @@ function initMapaFull() {
   mapaFullSavetiles = crearCapasBase(mapaFull);
   mapaFullMarkers = L.layerGroup().addTo(mapaFull);
   mapaFullLines = L.layerGroup().addTo(mapaFull);
+  estCanvas = L.canvas({ padding: 0.5 });          // renderer canvas: pinta ~1700 estaciones sin lag
+  estLayer = L.layerGroup();                        // se agrega al mapa solo al activar el toggle
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
 }
@@ -3032,6 +3041,101 @@ function mapaFullGPS() {
 }
 function mapaFullTiles() {
   descargarTilesConZoom(mapaFullSavetiles, mapaFull);
+}
+
+// ---- Estaciones meteorológicas (visor de alertas) ----
+// Toast breve sobre el mapa (auto-desaparece).
+function toastMapa(msg, ms) {
+  let t = document.getElementById('mapa-toast');
+  if (t) t.remove();
+  t = document.createElement('div'); t.id = 'mapa-toast';
+  t.style.cssText = 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1200;background:rgba(0,0,0,0.82);color:#fff;padding:7px 13px;border-radius:8px;font-size:0.8rem;max-width:90%;text-align:center;pointer-events:none';
+  t.textContent = msg;
+  document.getElementById('mapa-view').appendChild(t);
+  if (ms !== 0) setTimeout(() => { if (t.parentNode) t.remove(); }, ms || 2600);
+}
+function estBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-estaciones');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+// Parsea red_alertas.kml → [{lat, lon, estilo, nombre, desc}]
+function parseEstacionesKml(texto) {
+  const doc = new DOMParser().parseFromString(texto, 'text/xml');
+  const out = [];
+  const pms = doc.getElementsByTagName('Placemark');
+  for (let i = 0; i < pms.length; i++) {
+    const pm = pms[i];
+    const coordEl = pm.getElementsByTagName('coordinates')[0];
+    if (!coordEl) continue;                                   // salta folders/otros
+    const partes = coordEl.textContent.trim().split(',');
+    const lon = parseFloat(partes[0]), lat = parseFloat(partes[1]);
+    if (!isFinite(lat) || !isFinite(lon)) continue;
+    const styleEl = pm.getElementsByTagName('styleUrl')[0];
+    const estilo = styleEl ? styleEl.textContent.replace('#', '').trim() : 'gris';
+    const nameEl = pm.getElementsByTagName('name')[0];
+    const descEl = pm.getElementsByTagName('description')[0];
+    out.push({ lat, lon, estilo, nombre: nameEl ? nameEl.textContent : '', desc: descEl ? descEl.textContent : '' });
+  }
+  // timestamp del set (nombre del Document: "... - 2026-07-14T11:31:22Z")
+  const docName = (doc.getElementsByTagName('name')[0] || {}).textContent || '';
+  const mts = docName.match(/(\d{4}-\d{2}-\d{2}T[\d:]+Z)/);
+  out._fecha = mts ? mts[1] : null;
+  return out;
+}
+function renderEstaciones() {
+  if (!estLayer) return;
+  estLayer.clearLayers();
+  (estData || []).forEach(e => {
+    const color = EST_COLOR[e.estilo] || EST_COLOR.gris;
+    const cm = L.circleMarker([e.lat, e.lon], {
+      renderer: estCanvas, radius: EST_RADIO[e.estilo] || 4,
+      color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9
+    });
+    cm.bindPopup(e.desc || ('<b>' + e.nombre + '</b>'), { maxWidth: 360 });
+    estLayer.addLayer(cm);
+  });
+}
+async function cargarEstaciones(forzar) {
+  if (estCargando) return;
+  const fresco = estData && (Date.now() - estTs) < EST_MAXAGE;
+  if (fresco && !forzar) { renderEstaciones(); return; }
+  estCargando = true;
+  estBtnEstado('⏳ Estaciones', true);
+  toastMapa('Descargando estaciones…', 0);
+  try {
+    const resp = await fetch(EST_KML_URL, { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    estData = parseEstacionesKml(await resp.text());
+    estTs = Date.now();
+    renderEstaciones();
+    const conLluvia = estData.filter(e => e.estilo !== 'verde' && e.estilo !== 'gris').length;
+    const hora = estData._fecha ? new Date(estData._fecha).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
+    toastMapa('🌧️ ' + estData.length + ' estaciones' + (hora ? ' · dato ' + hora : '') + (conLluvia ? ' · ' + conLluvia + ' con alerta' : ''));
+  } catch (err) {
+    console.warn('Estaciones:', err);
+    toastMapa('⚠️ No se pudieron cargar las estaciones (¿sin conexión?)');
+    estOn = false;
+  } finally {
+    estCargando = false;
+    estBtnEstado('🌧️ Estaciones', estOn);
+  }
+}
+function toggleEstaciones() {
+  if (!mapaFull) return;
+  estOn = !estOn;
+  if (estOn) {
+    estLayer.addTo(mapaFull);
+    estBtnEstado('🌧️ Estaciones', true);
+    cargarEstaciones(false);
+    if (estTimer) clearInterval(estTimer);
+    estTimer = setInterval(() => { if (estOn && document.body.classList.contains('map-mode')) cargarEstaciones(true); }, EST_MAXAGE);
+  } else {
+    if (estTimer) { clearInterval(estTimer); estTimer = null; }
+    mapaFull.removeLayer(estLayer);
+    estBtnEstado('🌧️ Estaciones', false);
+  }
 }
 
 // ---- Dibujo de líneas ----
@@ -3194,6 +3298,7 @@ document.querySelectorAll('.viewtab').forEach(b => b.addEventListener('click', (
 document.getElementById('mapa-gps').addEventListener('click', mapaFullGPS);
 document.getElementById('mapa-linea').addEventListener('click', iniciarDibujoLinea);
 document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
+document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
 document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
 document.getElementById('app-ver').textContent = APP_VER;
 

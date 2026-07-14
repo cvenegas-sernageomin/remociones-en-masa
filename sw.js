@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v11';
+const CACHE_NAME = 'remociones-v12';
 const ASSETS = [
   './',
   './index.html',
@@ -45,6 +45,10 @@ self.addEventListener('fetch', e => {
 
   // Dejar que leaflet.offline maneje los tiles de Esri (IndexedDB)
   if (req.url.includes('arcgisonline.com')) return;
+
+  // Estaciones meteorológicas: KML del visor de alertas + gráficos QuickChart
+  // van SIEMPRE a la red (datos en vivo; no cachear o el refresco de 3 h serviría datos viejos)
+  if (req.url.includes('raw.githubusercontent.com') || req.url.includes('quickchart.io')) return;
 
   const esDoc = req.mode === 'navigate' || req.destination === 'document' ||
                 req.url.endsWith('/') || req.url.endsWith('index.html');
