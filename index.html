@@ -915,7 +915,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v16';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v17';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2371,6 +2371,74 @@ function downloadWord(bodyHtml, filename, styleCss) {
   downloadBlob(blob, filename);
 }
 
+// ============================================================
+// Generación del informe RETERM como .docx REAL (OOXML + JSZip)
+// Reproduce el formato institucional: Calibri 11pt, carta con márgenes 0.5",
+// tabla con bordes de 2 columnas, logo SERNAGEOMIN en el encabezado. 100% offline.
+// ============================================================
+const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const PIC_NS = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
+const EMU_IN = 914400;
+function oesc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function htmlToPlain(s) {
+  return String(s == null ? '' : s).replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&middot;/g, '·')
+    .replace(/&Iacute;/g, 'Í').replace(/&iacute;/g, 'í').replace(/&oacute;/g, 'ó').replace(/&Oacute;/g, 'Ó')
+    .replace(/&aacute;/g, 'á').replace(/&eacute;/g, 'é').replace(/&uacute;/g, 'ú').replace(/&ntilde;/g, 'ñ')
+    .replace(/&amp;/g, '&');
+}
+// run de texto {b,i,u,sz(1/2pt),color}
+function wR(t, o) {
+  o = o || {}; let rp = '';
+  if (o.b) rp += '<w:b/>'; if (o.i) rp += '<w:i/>'; if (o.u) rp += '<w:u w:val="single"/>';
+  if (o.sz) rp += '<w:sz w:val="' + o.sz + '"/><w:szCs w:val="' + o.sz + '"/>';
+  if (o.color) rp += '<w:color w:val="' + o.color + '"/>';
+  return '<w:r>' + (rp ? '<w:rPr>' + rp + '</w:rPr>' : '') + '<w:t xml:space="preserve">' + oesc(t) + '</w:t></w:r>';
+}
+// párrafo {align,after(twips)}
+function wP(runs, o) {
+  o = o || {}; let pp = '';
+  if (o.align) pp += '<w:jc w:val="' + o.align + '"/>';
+  pp += '<w:spacing w:after="' + (o.after != null ? o.after : 0) + '" w:line="259" w:lineRule="auto"/>';
+  return '<w:p><w:pPr>' + pp + '</w:pPr>' + (runs || '') + '</w:p>';
+}
+function wField(label, value) { return wP(wR(label + ': ', { b: true }) + wR(value)); }
+// imagen inline (cx/cy en EMU)
+function wImg(rId, cx, cy, id, name) {
+  return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/>'
+    + '<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="' + id + '" name="' + oesc(name) + '"/>'
+    + '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="' + A_NS + '" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    + '<a:graphic xmlns:a="' + A_NS + '"><a:graphicData uri="' + PIC_NS + '"><pic:pic xmlns:pic="' + PIC_NS + '">'
+    + '<pic:nvPicPr><pic:cNvPr id="' + id + '" name="' + oesc(name) + '"/><pic:cNvPicPr/></pic:nvPicPr>'
+    + '<pic:blipFill><a:blip r:embed="' + rId + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    + '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>'
+    + '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+}
+// celda {w,span,vmerge:'restart'|'continue',valign}
+function wC(content, o) {
+  o = o || {}; let tp = '<w:tcW w:w="' + (o.w || 0) + '" w:type="dxa"/>';
+  if (o.span) tp += '<w:gridSpan w:val="' + o.span + '"/>';
+  if (o.vmerge === 'restart') tp += '<w:vMerge w:val="restart"/>';
+  else if (o.vmerge === 'continue') tp += '<w:vMerge/>';
+  if (o.valign) tp += '<w:vAlign w:val="' + o.valign + '"/>';
+  return '<w:tc><w:tcPr>' + tp + '</w:tcPr>' + (content || wP('')) + '</w:tc>';
+}
+function wTr(cells) { return '<w:tr>' + cells + '</w:tr>'; }
+function dataUrlToU8(u) { const b = atob(u.split(',')[1]); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function imgDims(u) { return new Promise(res => { const im = new Image(); im.onload = () => res({ w: im.naturalWidth || 4, h: im.naturalHeight || 3 }); im.onerror = () => res({ w: 4, h: 3 }); im.src = u; }); }
+
+const DOCX_CT = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="jpg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>';
+const DOCX_ROOT_RELS = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>';
+const DOCX_CORE = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Reporte Tecnico de Remocion en Masa</dc:title><dc:creator>SERNAGEOMIN</dc:creator></cp:coreProperties>';
+const DOCX_APP = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>GeoTerreno Remociones</Application></Properties>';
+const DOCX_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="es-CL"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="20" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="20" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style><w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders></w:tblPr></w:style></w:styles>';
+const DOCX_SETTINGS = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:defaultTabStop w:val="708"/><w:compat/></w:settings>';
+const DOCX_HEADER_RELS = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/></Relationships>';
+function docxHeaderXml() {
+  const cx = Math.round(2.0 * EMU_IN), cy = Math.round(cx / 2.024); // logo 2.0" de ancho, aspecto real 2.024:1
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="' + A_NS + '" xmlns:pic="' + PIC_NS + '">' + wP(wImg('rId1', cx, cy, 1, 'logo'), { after: 0 }) + '</w:hdr>';
+}
+
 async function generateRETERM(record) {
   const data = record ? record.data : collectFormData();
   const fotos = record ? (record.fotos || []) : fotosData;
@@ -2473,80 +2541,121 @@ async function generateRETERM(record) {
     }
     const recomHtml = recomList.map((r, i) => `<p style="margin:0 0 5px 0;text-align:justify">${String.fromCharCode(97 + i)}. ${esc(r)}</p>`).join('');
 
-    // Fotos
-    const fotoCaption = (i) => {
-      const f = fotos[i]; if (!f) return '';
-      const az = f.azimuth != null ? ` (azimut ${f.azimuth}°N)` : '';
-      return `${f.desc || ''}${az}`.trim();
-    };
-    const figLetters = ['B', 'C', 'D', 'E', 'F', 'G', 'H'];
-    const fotosHtml = b64Fotos.map((b64, i) => b64 ? `
-      <div style="margin-top:8px;page-break-inside:avoid;text-align:center">
-        <img src="${b64}" width="440" style="max-width:100%;border:1px solid #999">
-        <p style="font-size:8.5pt;color:#333;margin:3px 0 0 0;font-style:italic">Figura ${figLetters[i] || (i + 1)}. ${esc(fotoCaption(i)) || 'Fotografía de terreno.'}</p>
-      </div>` : '').join('');
+    // (el registro fotográfico se arma directamente en OOXML más abajo)
 
     const today = new Date().toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const iniciales = (data['prof-iniciales'] || getIniciales() || '___').toUpperCase();
 
-    const styleCss = `
-      body{font-family:Arial,sans-serif;font-size:10.5pt;color:#111;}
-      p{margin:0 0 4px 0;}
-      .tag{font-size:9pt;font-weight:bold;letter-spacing:.4px;color:#25306B;margin:4px 0 10px 0;}
-      .titulo{font-weight:bold;font-size:12pt;text-align:center;margin:4px 0 2px 0;}
-      .subtitulo{font-size:10pt;text-align:center;font-style:italic;margin-bottom:8px;}
-      table{border-collapse:collapse;}
-      .info{width:100%;border:1px solid #333;}
-      .info td{border:1px solid #666;padding:5px 8px;vertical-align:top;font-size:9.5pt;}
-      .lbl{font-weight:bold;}
-      .sec{background:#25306B;color:#fff;font-weight:bold;padding:4px 8px;margin:12px 0 6px 0;font-size:10.5pt;}
-      .firma{text-align:right;font-weight:bold;margin-top:14px;}`;
+    // ---------- Salida .docx (OOXML real, formato institucional) ----------
+    // Imágenes → bytes + dimensiones (EMU). Figura A a ~3.7", fotos a ~6.6" (con tope de alto).
+    let figRid = null, figBytes = null, figExt = 'jpg', figCx = 0, figCy = 0;
+    if (figuraA) {
+      figBytes = dataUrlToU8(figuraA);
+      figExt = /^data:image\/png/.test(figuraA) ? 'png' : 'jpg';
+      const d = await imgDims(figuraA);
+      figCx = Math.round(3.7 * EMU_IN);
+      figCy = Math.round(figCx * d.h / d.w);
+    }
+    const fotoParts = [];
+    for (let i = 0; i < b64Fotos.length; i++) {
+      if (!b64Fotos[i]) continue;
+      const d = await imgDims(b64Fotos[i]);
+      let cx = Math.round(6.6 * EMU_IN), cy = Math.round(cx * d.h / d.w);
+      const maxCy = Math.round(7.3 * EMU_IN);
+      if (cy > maxCy) { cy = maxCy; cx = Math.round(cy * d.w / d.h); }
+      fotoParts.push({ idx: i, bytes: dataUrlToU8(b64Fotos[i]), ext: /^data:image\/png/.test(b64Fotos[i]) ? 'png' : 'jpg', cx, cy });
+    }
 
-    const body = `
-<img src="${membreteBarPng()}" width="180" style="display:block">
-<div class="tag">SERNAGEOMIN &nbsp;&middot;&nbsp; GEOLOG&Iacute;A APLICADA</div>
+    // Relaciones de document.xml: rId1 styles, rId2 settings, rId3 header, luego imágenes
+    let rc = 3; const imgRels = [];
+    if (figBytes) { figRid = 'rId' + (++rc); imgRels.push('<Relationship Id="' + figRid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/figuraA.' + figExt + '"/>'); }
+    fotoParts.forEach((f, k) => { f.rid = 'rId' + (++rc); imgRels.push('<Relationship Id="' + f.rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/foto' + (k + 1) + '.' + f.ext + '"/>'); });
 
-<div class="titulo">${esc(tituloReporte)}</div>
-<div class="subtitulo">Descripci&oacute;n de remoci&oacute;n en masa tipo ${esc(tipo)} observada el ${esc(fechaStr)}</div>
+    const LW = 5160, RW = 5640, FULL = 10800;
+    const figCell = figRid
+      ? wP(wImg(figRid, figCx, figCy, 900, 'FiguraA'), { align: 'center', after: 40 })
+        + wP(wR('Figura A. Ubicación de la remoción en masa (imagen satelital con grilla UTM).', { i: true, sz: 17 }), { align: 'center' })
+      : wP(wR('Figura A: sin imagen satelital (sin conexión al capturar).', { i: true, color: '999999', sz: 18 }), { align: 'center' });
 
-<table class="info">
-  <tr>
-    <td style="width:50%">
-      <p><span class="lbl">IDENTIFICACIÓN:</span> Remoción en masa</p>
-      <p><span class="lbl">TIPO PRINCIPAL:</span> ${esc(tipo)}</p>
-      <p><span class="lbl">UBICACIÓN:</span> ${esc(localidad)}</p>
-      <p><span class="lbl">COORDENADAS:</span> ${esc(coordStr)}</p>
-      <p><span class="lbl">DÍA EVENTO:</span> ${esc(fechaStr)}</p>
-      <p><span class="lbl">DESENCADENANTE:</span> ${esc(data.desencadenante || 'No registrado')}</p>
-      <p><span class="lbl">ESTADO:</span> ${esc(estado)}</p>
-      <p><span class="lbl">ÁREA Y VOLUMEN (ORDEN DE MAGNITUD):</span> ${esc(areaVol)}</p>
-      <p><span class="lbl">ANTECEDENTE:</span> ${esc(antecedente)}</p>
-      ${data.id ? `<p><span class="lbl">ID RM:</span> ${esc(data.id)}</p>` : ''}
-    </td>
-    <td style="width:50%;text-align:center">
-      ${figuraA ? `<img src="${figuraA}" width="330" style="max-width:100%;border:1px solid #999"><p style="font-size:8.5pt;color:#333;margin:3px 0 0 0;font-style:italic">Figura A. Ubicación de la remoción en masa (imagen satelital con grilla UTM).</p>` : '<p style="color:#999;font-size:9pt">Figura A: sin imagen satelital (sin conexión al capturar).</p>'}
-    </td>
-  </tr>
-</table>
+    const idFields = [
+      ['IDENTIFICACIÓN', localidad !== '___' ? localidad : 'Remoción en masa'],
+      ['TIPO PRINCIPAL', tipo],
+      ['UBICACIÓN', localidad],
+      ['COORDENADAS (UTM WGS84)', coordStr],
+      ['DÍA EVENTO', fechaStr],
+      ['DESENCADENANTE', data.desencadenante || 'No registrado'],
+      ['ESTADO', estado],
+      ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', areaVol],
+      ['ANTECEDENTE', antecedente],
+    ];
+    if (data.id) idFields.push(['ID RM', data.id]);
+    let idRows = '';
+    idFields.forEach((f, i) => {
+      const right = i === 0 ? wC(figCell, { w: RW, vmerge: 'restart', valign: 'center' }) : wC(wP(''), { w: RW, vmerge: 'continue' });
+      idRows += wTr(wC(wField(f[0], f[1]), { w: LW }) + right);
+    });
 
-<div class="sec">Insumos utilizados para el análisis</div>
-<p>Fotografías de terreno${fotos.filter(f => f.blob).length > 0 ? ' (' + fotos.filter(f => f.blob).length + ' fotografías)' : ''}; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.</p>
+    const secRow = (t) => wTr(wC(wP(wR(t, { b: true }), { align: 'center' }), { w: FULL, span: 2 }));
+    const fullRow = (c) => wTr(wC(c, { w: FULL, span: 2 }));
 
-<div class="sec">Observaciones</div>
-${observaciones}
+    const obsXml = obsPartes.map((p, i) => wP(wR((i + 1) + '. ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
+    const nFotosOk = fotos.filter(f => f.blob).length;
+    const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
+    const concluXml = wP(wR('• ' + htmlToPlain(concluFrase)), { align: 'both', after: 80 })
+      + wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
+      + recomList.map(r => wP(wR('• ' + htmlToPlain(r)), { align: 'both', after: 60 })).join('');
 
-<div class="sec">Conclusiones y recomendaciones</div>
-<p style="text-align:justify;margin-bottom:8px">${concluFrase}</p>
-<p style="text-align:justify;margin-bottom:6px">Se recomienda lo siguiente:</p>
-${recomHtml}
+    const figLetters = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    let fotosRows = '';
+    fotoParts.forEach((f, k) => {
+      const fo = fotos[f.idx] || {};
+      const cap = ((fo.desc || '') + (fo.azimuth != null ? ' (azimut ' + fo.azimuth + '°N)' : '')).trim() || 'Fotografía de terreno.';
+      fotosRows += fullRow(
+        wP(wImg(f.rid, f.cx, f.cy, 1000 + k, 'Foto' + (k + 1)), { align: 'center', after: 40 })
+        + wP(wR('Figura ' + (figLetters[k] || (k + 1)) + '. ' + cap, { i: true, sz: 17 }), { align: 'center' }));
+    });
 
-${fotosHtml ? `<div class="sec">Registro fotográfico</div>${fotosHtml}` : ''}
+    const tabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>'
+      + '<w:tblGrid><w:gridCol w:w="' + LW + '"/><w:gridCol w:w="' + RW + '"/></w:tblGrid>'
+      + secRow('Descripción de remoción en masa tipo ' + tipo + ' observada el ' + fechaStr)
+      + idRows
+      + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
+      + secRow('Observaciones') + fullRow(obsXml)
+      + secRow('Conclusiones y recomendaciones') + fullRow(concluXml)
+      + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
+      + '</w:tbl>';
 
-<p class="firma">Elaborado el ${esc(today)}/${esc(iniciales)}_UATEG</p>`;
+    const sectPr = '<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/>'
+      + '<w:pgMar w:top="2160" w:right="720" w:bottom="720" w:left="720" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="708"/></w:sectPr>';
 
+    const docBody = wP(wR('SERVICIO NACIONAL DE GEOLOGÍA Y MINERÍA - SERNAGEOMIN'), { align: 'center' })
+      + wP(wR(tituloReporte, { b: true, u: true }), { align: 'center', after: 120 })
+      + tabla
+      + wP(wR('Elaborado el ' + today + '/' + iniciales + '_UATEG', { b: true }), { align: 'right' });
+
+    const documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="' + A_NS + '" xmlns:pic="' + PIC_NS + '"><w:body>' + docBody + sectPr + '</w:body></w:document>';
+    const docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>' + imgRels.join('') + '</Relationships>';
+
+    const logoU8 = new Uint8Array(await (await fetch('vendor/reterm-logo.png')).arrayBuffer());
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', DOCX_CT);
+    zip.file('_rels/.rels', DOCX_ROOT_RELS);
+    zip.file('docProps/core.xml', DOCX_CORE);
+    zip.file('docProps/app.xml', DOCX_APP);
+    zip.file('word/document.xml', documentXml);
+    zip.file('word/_rels/document.xml.rels', docRels);
+    zip.file('word/styles.xml', DOCX_STYLES);
+    zip.file('word/settings.xml', DOCX_SETTINGS);
+    zip.file('word/header1.xml', docxHeaderXml());
+    zip.file('word/_rels/header1.xml.rels', DOCX_HEADER_RELS);
+    zip.file('word/media/logo.png', logoU8);
+    if (figBytes) zip.file('word/media/figuraA.' + figExt, figBytes);
+    fotoParts.forEach((f, k) => zip.file('word/media/foto' + (k + 1) + '.' + f.ext, f.bytes));
+
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     const idTag = (data.id || tipo).replace(/[^A-Za-z0-9_-]/g, '_');
-    const filename = `RETERM_${regionCorta.replace(/\s+/g, '_')}_${nReterm}_${idTag}.doc`;
-    downloadWord(body, filename, styleCss);
+    const filename = `RETERM_${regionCorta.replace(/\s+/g, '_')}_${nReterm}_${idTag}.docx`;
+    downloadBlob(blob, filename);
   } catch (err) {
     alert('Error al generar el informe RETERM: ' + err.message);
     console.error(err);
