@@ -761,6 +761,22 @@ body.map-mode #nav-buttons { display: none !important; }
     <label>Otros / Observaciones <button class="help-btn" data-help="otros">?</button></label>
     <textarea id="otros" placeholder="Cualquier otra observación relevante..."></textarea>
   </div>
+
+  <div class="field">
+    <label>Recomendaciones <button class="help-btn" data-help="recomendaciones">?</button></label>
+    <div class="chips-group" id="recom-chips">
+      <button type="button" class="chip" data-val="Se recomienda evacuar a las personas que habiten en la vivienda o predio directamente afectado, dado el riesgo para su integridad.">Evacuar habitantes</button>
+      <button type="button" class="chip" data-val="Se recomienda restringir y señalizar el acceso al sector afectado mientras se mantengan las condiciones de inestabilidad.">Restringir acceso al sector</button>
+      <button type="button" class="chip" data-val="Se requiere la implementación de medidas de mitigación y/o obras de contención en el talud o ladera afectada.">Medidas de mitigación requeridas</button>
+      <button type="button" class="chip" data-val="Se recomienda implementar un sistema de encauzamiento y canalización de aguas lluvias para evitar la saturación e infiltración en el talud.">Canalizar aguas lluvias</button>
+      <button type="button" class="chip" data-val="Se recomienda retirar de manera cuidadosa y controlada el material depositado, evitando desestabilizar los sectores adyacentes.">Retirar material depositado</button>
+      <button type="button" class="chip" data-val="Se recomienda realizar inspecciones periódicas del sector para monitorear la evolución del proceso, con mayor frecuencia ante eventos de lluvia o sismos.">Inspecciones periódicas</button>
+      <button type="button" class="chip" data-val="Se recomienda evaluar la reubicación de la infraestructura o vivienda expuesta ante la persistencia del riesgo.">Evaluar reubicación</button>
+      <button type="button" class="chip" data-val="Se recomienda informar oportunamente a las autoridades y organismos competentes ante cualquier variación relevante en las condiciones del sitio.">Informar ante cambios</button>
+    </div>
+    <p style="font-size:0.75rem;color:var(--muted);margin:6px 0 4px">Otras recomendaciones (texto libre)</p>
+    <textarea id="recom-libre" placeholder="Agrega recomendaciones adicionales específicas para este caso..."></textarea>
+  </div>
 </div>
 
 <!-- PASO 6: Fotos y cierre -->
@@ -778,6 +794,11 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
+    <label>N° Informe RETERM <button class="help-btn" data-help="n-reterm">?</button></label>
+    <input type="text" id="n-reterm" placeholder="ej: 07">
+  </div>
+
+  <div class="field">
     <label>Autor <button class="help-btn" data-help="autor">?</button></label>
     <input type="text" id="autor" placeholder="Nombre y apellido">
   </div>
@@ -789,7 +810,7 @@ body.map-mode #nav-buttons { display: none !important; }
 
   <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
     <button class="btn-generate" id="btn-generate" style="flex:1;min-width:140px">⬇️ Generar KMZ</button>
-    <button class="btn-generate" id="btn-pdf" style="flex:1;min-width:140px;background:var(--surface2);color:var(--fg);border:1px solid var(--border)">🖨️ Informe PDF</button>
+    <button class="btn-generate" id="btn-pdf" style="flex:1;min-width:140px;background:var(--surface2);color:var(--fg);border:1px solid var(--border)">📄 Informe RETERM (Word)</button>
   </div>
 
   <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:10px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
@@ -805,9 +826,15 @@ body.map-mode #nav-buttons { display: none !important; }
       <h3 style="margin:0;font-size:1.05rem">📋 RMs guardadas</h3>
       <button type="button" id="rms-close" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--fg)">✕</button>
     </div>
-    <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:12px;background:var(--red,#e63946);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
+    <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:8px;background:var(--red,#e63946);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       ⬇️ KMZ del día (todas las RM)
     </button>
+    <div style="display:flex;gap:8px;margin-bottom:6px">
+      <button type="button" id="btn-export-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">💾 Guardar respaldo</button>
+      <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
+      <input type="file" id="input-backup" accept=".json,application/json" style="display:none">
+    </div>
+    <p style="font-size:0.72rem;color:var(--muted);margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). Guárdalo en el teléfono o PC; con «Abrir respaldo» puedes recargarlo cuando quieras y verlo en el mapa, incluso en otro dispositivo.</p>
     <div id="rms-list"></div>
   </div>
 </div>
@@ -887,7 +914,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v10';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v11';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1569,7 +1596,7 @@ const HELP_TEXTS = {
   },
   'rm-id': {
     title: 'ID de la RM',
-    text: 'Identificador único de esta remoción en masa. Se genera automáticamente con el formato RM-INICIALES-AAAAMMDD-NN (iniciales del profesional + fecha + correlativo), pero puedes editarlo. Las iniciales evitan que dos profesionales generen el mismo ID. Se incluye en el KMZ y el informe PDF.'
+    text: 'Identificador único de esta remoción en masa. Se genera automáticamente con el formato RM-INICIALES-AAAAMMDD-NN (iniciales del profesional + fecha + correlativo), pero puedes editarlo. Las iniciales evitan que dos profesionales generen el mismo ID. Se incluye en el KMZ y el informe RETERM.'
   },
   zona: {
     title: 'Zona del evento',
@@ -1735,6 +1762,14 @@ const HELP_TEXTS = {
     title: 'Otras observaciones',
     text: 'Cualquier información adicional relevante que no encaje en los campos anteriores: evidencias de eventos previos en el mismo lugar, condiciones del terreno inusuales, información aportada por testigos locales, etc.'
   },
+  recomendaciones: {
+    title: 'Recomendaciones',
+    text: 'Selecciona las recomendaciones generales que apliquen a este caso; se incluyen en el informe RETERM tal como aparecen. Agrega en el campo de texto libre cualquier recomendación específica del sitio (evita el exceso de detalle técnico: las recomendaciones deben ser claras para autoridades y comunidad).'
+  },
+  'n-reterm': {
+    title: 'N° de Informe RETERM',
+    text: 'Número correlativo del Reporte Técnico de Remoción en Masa (RETERM) para la región y el año, ej: "06" para "LOS RÍOS 06/2026". Este número lo asigna la Dirección Regional; déjalo en blanco si aún no se ha asignado.'
+  },
   autor: {
     title: 'Autor del registro',
     text: 'Tu nombre completo. Se guardará automáticamente para los próximos registros en este dispositivo.'
@@ -1775,6 +1810,78 @@ async function captureSatelitalBase64() {
       reader.onload = () => resolve(reader.result.split(',')[1]);
       reader.readAsDataURL(blob);
     });
+  } catch {
+    return null;
+  }
+}
+
+// Figura A del informe RETERM: imagen satelital centrada en el punto, con marcador y grilla
+// de coordenadas UTM. El bbox se calcula a partir del punto (no depende del encuadre visible
+// del mapa), para que sea reproducible tanto en vivo como al reabrir una RM guardada sin conexión.
+const FIGURA_A_RADIO_M = 400; // semi-ancho del recuadro (extensión total ~800 m)
+async function capturarFiguraA(lat, lon) {
+  if (lat == null || lon == null) return null;
+  const dLat = FIGURA_A_RADIO_M / 111320;
+  const dLon = FIGURA_A_RADIO_M / (111320 * Math.cos(lat * Math.PI / 180));
+  const west = lon - dLon, east = lon + dLon, south = lat - dLat, north = lat + dLat;
+  const W = 800, H = 600;
+  const url = `https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export?bbox=${west},${south},${east},${north}&bboxSR=4326&size=${W},${H}&imageSR=4326&format=jpg&f=image`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(9000) });
+    if (!resp.ok) throw new Error('Esri export falló');
+    const blob = await resp.blob();
+    const imgUrl = URL.createObjectURL(blob);
+    const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = imgUrl; });
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, W, H);
+    URL.revokeObjectURL(imgUrl);
+
+    // Grilla de coordenadas UTM (3 líneas verticales + 3 horizontales, etiquetadas con su E/N real)
+    const drawLabel = (x, y, text, align) => {
+      ctx.font = 'bold 12px Arial';
+      const tw = ctx.measureText(text).width;
+      const bx = align === 'right' ? x - tw - 8 : x + 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(bx, y, tw + 6, 15);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, bx + 3, y + 12);
+    };
+    ctx.strokeStyle = 'rgba(255,255,0,0.85)';
+    ctx.lineWidth = 1;
+    [0.2, 0.5, 0.8].forEach(fx => {
+      const x = fx * W;
+      const utm = latLonToUTM(lat, west + fx * (east - west));
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      drawLabel(x, 2, utm.E.toLocaleString() + ' E', fx > 0.8 ? 'right' : 'left');
+    });
+    [0.2, 0.5, 0.8].forEach(fy => {
+      const y = fy * H;
+      const utm = latLonToUTM(north - fy * (north - south), lon);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      drawLabel(2, y + 2, utm.N.toLocaleString() + ' N', 'left');
+    });
+
+    // Marcador rojo en el centro exacto (el bbox siempre está centrado en lat/lon)
+    const cx = W / 2, cy = H / 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy - 22); ctx.lineTo(cx, cy - 8);
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = '#ff0000'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+
+    // Escala aproximada (barra + texto) en la esquina inferior derecha
+    const escalaM = 200;
+    const pxPorGrado = W / (east - west);
+    const metrosPorGrado = 111320 * Math.cos(lat * Math.PI / 180);
+    const escalaPx = escalaM / metrosPorGrado * pxPorGrado;
+    const sx = W - escalaPx - 14, sy = H - 20;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + escalaPx, sy); ctx.stroke();
+    drawLabel(sx, sy - 18, escalaM + ' m', 'left');
+
+    return canvas.toDataURL('image/jpeg', 0.85);
   } catch {
     return null;
   }
@@ -2125,7 +2232,7 @@ document.getElementById('btn-generate').addEventListener('click', () => generate
 // =====================
 // INFORME PDF
 // =====================
-document.getElementById('btn-pdf').addEventListener('click', () => generatePDF());
+document.getElementById('btn-pdf').addEventListener('click', () => generateRETERM());
 
 // Región de Chile aproximada a partir de las coordenadas (la ubicación define la región,
 // ya no se selecciona a mano). Franja central: interior = Metropolitana, costa = Valparaíso/O'Higgins.
@@ -2195,11 +2302,15 @@ function collectFormData() {
     'dist-vivienda': document.getElementById('dist-vivienda')?.value,
     efectos: document.getElementById('efectos')?.value,
     otros: document.getElementById('otros')?.value,
+    'recomendaciones-check': getChipsValues('recom-chips'),
+    'recomendaciones-libre': document.getElementById('recom-libre')?.value,
     autor: document.getElementById('autor')?.value,
+    'prof-iniciales': document.getElementById('prof-iniciales')?.value,
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
     region: regionFromCoords(getCoords()),
     localidad: document.getElementById('localidad')?.value,
     'n-antecedente': document.getElementById('n-antecedente')?.value,
+    'n-reterm': document.getElementById('n-reterm')?.value,
   };
 }
 
@@ -2222,237 +2333,224 @@ function latLonToUTM(lat, lon) {
   return { E: Math.round(x), N: Math.round(y), zone: `${zone}${lat<0?'S':'N'}` };
 }
 
-async function generatePDF(record) {
+// Rasteriza el membrete (barra azul/roja + estrella) a PNG: Word no renderiza SVG inline.
+function drawStarCanvas(ctx, cx, cy, R, r, fill) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rad = i % 2 === 0 ? R : r;
+    const x = cx + rad * Math.cos(ang), y = cy + rad * Math.sin(ang);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+function membreteBarPng() {
+  const w = 200, h = 26, scale = 4;
+  const c = document.createElement('canvas');
+  c.width = w * scale; c.height = h * scale;
+  const ctx = c.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.fillStyle = '#006BB9'; ctx.fillRect(0, 0, 102, 26);
+  ctx.fillStyle = '#FF1D3D'; ctx.fillRect(102, 0, 98, 26);
+  drawStarCanvas(ctx, 102, 13, 11, 4.4, '#ffffff');
+  return c.toDataURL('image/png');
+}
+
+// Descarga un documento Word (.doc) a partir de HTML. Word y LibreOffice abren HTML-as-doc
+// con imágenes base64 embebidas; funciona 100% offline sin librerías externas.
+function downloadWord(bodyHtml, filename, styleCss) {
+  const pre = '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+    + 'xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">'
+    + '<head><meta charset="utf-8"><title>Reporte RETERM</title>'
+    + '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->'
+    + '<style>@page{size:21cm 29.7cm;margin:2cm 2cm;}' + (styleCss || '') + '</style></head><body>';
+  const html = pre + bodyHtml + '</body></html>';
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  downloadBlob(blob, filename);
+}
+
+async function generateRETERM(record) {
   const data = record ? record.data : collectFormData();
   const fotos = record ? (record.fotos || []) : fotosData;
-  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Fotos → base64
-  const b64Fotos = await Promise.all(fotos.map(f => f.blob
-    ? new Promise(res => { const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(f.blob); })
-    : Promise.resolve(null)));
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Generando informe RETERM...';
 
-  // UTM coords
-  let coordStr = 'No registradas', altStr = '';
-  if (data.coords) {
-    const utm = latLonToUTM(data.coords.lat, data.coords.lng);
-    coordStr = `${utm.E.toLocaleString()} m E   ${utm.N.toLocaleString()} m N  (UTM-WGS84 H${utm.zone})`;
-  }
+  try {
+    // Fotos → base64
+    const b64Fotos = await Promise.all(fotos.map(f => f.blob
+      ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); })
+      : Promise.resolve(null)));
 
-  // Campos derivados
-  const fechaStr = (() => {
-    let s = data['fecha-inicio'] || 'No registrada';
-    if (data['fecha-aprox']) s += ' (aprox.)';
-    if (data['fecha-fin']) s += ' — ' + data['fecha-fin'];
-    return s;
-  })();
-  const estado = data.amenaza==='si' ? 'Activo' : data.amenaza==='no' ? 'Inactivo' : data.amenaza==='incierta' ? 'En evaluación' : 'No evaluado';
-  const region = data.region || 'XXXX';
-  const regionCorta = region.replace(/\s*\(.*\)/, '').toUpperCase();
-  const tipo = data['tipo-movimiento'] || 'remoción en masa';
-  const localidad = data.localidad || '___';
-  const antecedente = data['n-antecedente'] || '—';
+    // Figura A: usa la guardada; si no hay y estamos en vivo, la captura
+    let figuraA = data.figuraA || null;
+    if (!figuraA && data.coords) { try { figuraA = await capturarFiguraA(data.coords.lat, data.coords.lng); } catch {} }
 
-  // Morfometría → texto y área estimada
-  const morfoFields = morfoFieldsFor(data['tipo-movimiento']);
-  const morfoVals = {};
-  morfoFields.forEach(f => { if (data[f.id]) morfoVals[f.id] = data[f.id]; });
-  const areaEstimada = (() => {
-    const w = morfoVals['ancho-deposito']?.valor;
-    const l = morfoVals['dist-horizontal']?.valor;
-    if (w && l) return `~${Math.round(w*l)} m²`;
-    return null;
-  })();
-  const morfoTexto = morfoFields
-    .map(f => morfoVals[f.id] ? `${f.label}: ${morfoVals[f.id].valor} ${f.unit}${morfoVals[f.id].estimado?' (est.)':''}` : null)
-    .filter(Boolean).join('. ');
+    // Coordenadas UTM
+    let coordStr = 'No registradas';
+    if (data.coords) {
+      const utm = latLonToUTM(data.coords.lat, data.coords.lng);
+      coordStr = `${utm.E.toLocaleString()} E / ${utm.N.toLocaleString()} ${data.coords.lat < 0 ? 'S' : 'N'} (UTM WGS84; ${utm.zone})`;
+    }
 
-  // Auto-observaciones
-  const obsPartes = [];
-  obsPartes.push(`En el sector de ${localidad}${data.region ? ', Región de '+data.region.replace(/\s*\(.*\)/,'') : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
-  if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
-  if (morfoTexto) obsPartes.push(morfoTexto + '.');
-  if (data.litologia) {
-    let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
-    if (data['grado-alteracion']) litFrase += `, con ${esc(data['grado-alteracion'].toLowerCase())}`;
-    obsPartes.push(litFrase + '.');
-  }
-  if (data.estructuras?.length) obsPartes.push(`Se observan ${esc(data.estructuras.join(', '))} en el escarpe.`);
-  if ((data['estructuras-dip']||[]).length) {
-    const dipStr = data['estructuras-dip'].map(e=>`${e.tipo||'estructura'} rumbo ${e.strike||'?'}°N/dip ${e.dip||'?'}° (RHR)`).join('; ');
-    obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
-  }
-  if (data.efectos) obsPartes.push(esc(data.efectos));
-  if (data.otros) obsPartes.push(esc(data.otros));
-  const observaciones = obsPartes.map(p=>`<p style="margin-bottom:6px;text-align:justify">${p}</p>`).join('');
+    // Campos derivados
+    const fechaStr = (() => {
+      let s = data['fecha-inicio'] || 'No registrada';
+      if (data['fecha-aprox']) s += ' (aprox.)';
+      if (data['fecha-fin']) s += ' — ' + data['fecha-fin'];
+      return s;
+    })();
+    const estado = data.amenaza === 'si' ? 'Activo' : data.amenaza === 'no' ? 'Inactivo' : data.amenaza === 'incierta' ? 'En evaluación' : 'No evaluado';
+    const region = data.region || 'XXXX';
+    const regionCorta = region.replace(/\s*\(.*\)/, '').toUpperCase();
+    const tipo = data['tipo-movimiento'] || 'remoción en masa';
+    const localidad = data.localidad || '___';
+    const antecedente = data['n-antecedente'] || '—';
+    const nReterm = (data['n-reterm'] || 'XX').padStart(2, '0');
+    const anio = (data['fecha-inicio'] || new Date().toISOString()).slice(0, 4);
+    const tituloReporte = `REPORTE TÉCNICO DE REMOCIÓN EN MASA ${regionCorta} ${nReterm}/${anio}`;
 
-  // Auto-conclusiones y recomendaciones
-  const infra = data.infraestructura?.length ? data.infraestructura.join(', ') : null;
-  const personas = data['personas-afectadas'];
-  const concluFrase = data.amenaza==='si'
-    ? `Se concluye que la remoción en masa se encuentra <b>activa</b> y podría afectar${infra?' a '+esc(infra):''}${personas?' con '+esc(personas)+' personas afectadas':''} en futuras reactivaciones.`
-    : data.amenaza==='incierta'
-      ? `Se concluye que la remoción en masa se encuentra <b>en evaluación</b>. No se descarta que el evento pueda reactivarse.`
-      : `Se concluye que la remoción en masa se encuentra <b>inactiva</b> al momento de la visita.`;
+    // Morfometría → área y volumen (orden de magnitud)
+    const morfoFields = morfoFieldsFor(data['tipo-movimiento']);
+    const morfoVals = {};
+    morfoFields.forEach(f => { if (data[f.id]) morfoVals[f.id] = data[f.id]; });
+    const areaNum = (() => {
+      const w = parseFloat(morfoVals['ancho-deposito']?.valor);
+      const l = parseFloat(morfoVals['dist-horizontal']?.valor);
+      return (w && l) ? Math.round(w * l) : null;
+    })();
+    const volNum = (() => {
+      const esp = parseFloat(morfoVals['espesor-deposito']?.valor);
+      return (areaNum && esp) ? Math.round(areaNum * esp) : null;
+    })();
+    const areaVol = [areaNum ? `~${areaNum} m²` : null, volNum ? `~${volNum} m³` : null].filter(Boolean).join(' / ') || 'Por estimar';
+    const morfoTexto = morfoFields
+      .map(f => morfoVals[f.id] ? `${f.label}: ${morfoVals[f.id].valor} ${f.unit}${morfoVals[f.id].estimado ? ' (est.)' : ''}` : null)
+      .filter(Boolean).join('. ');
 
-  const recomendaciones = [];
-  if (data.amenaza==='si'||data.amenaza==='incierta') {
-    recomendaciones.push('Se recomienda que las personas que habiten en predios afectados o adyacentes implementen medidas de mitigación y evacúen si la amenaza es activa.');
-    recomendaciones.push(`Monitorear periódicamente el ${esc(tipo.toLowerCase())} ocurrido, especialmente los sectores más inestables con especial atención a eventos de lluvia o sismos.`);
-  }
-  recomendaciones.push('Implementar medidas de drenaje y conducción de aguas lluvias para protección de taludes y laderas que hayan sido afectadas por remociones en masa o que pudiesen sufrir este tipo de fenómenos.');
-  if (data['dist-vivienda'] || infra) {
-    recomendaciones.push(`Considerar un perímetro de seguridad desde el escarpe principal de la remoción en masa${data['dist-vivienda']?' (referencia: '+data['dist-vivienda']+' m a vivienda más cercana)':''}.`);
-  }
+    // Observaciones auto
+    const obsPartes = [];
+    obsPartes.push(`En el sector de ${esc(localidad)}${data.region ? ', Región de ' + esc(data.region.replace(/\s*\(.*\)/, '')) : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
+    if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
+    if (morfoTexto) obsPartes.push(esc(morfoTexto) + '.');
+    if (data.litologia) {
+      let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
+      if (data['grado-alteracion']) litFrase += `, con ${esc(data['grado-alteracion'].toLowerCase())}`;
+      obsPartes.push(litFrase + '.');
+    }
+    if (data.estructuras?.length) obsPartes.push(`Se observan ${esc(data.estructuras.join(', '))} en el escarpe.`);
+    if ((data['estructuras-dip'] || []).length) {
+      const dipStr = data['estructuras-dip'].map(e => `${e.tipo || 'estructura'} rumbo ${e.strike || '?'}°N/dip ${e.dip || '?'}° (RHR)`).join('; ');
+      obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
+    }
+    if (data.efectos) obsPartes.push(esc(data.efectos));
+    if (data.otros) obsPartes.push(esc(data.otros));
+    const observaciones = obsPartes.map((p, i) => `<p style="margin:0 0 6px 0;text-align:justify">${i + 1}. ${p}</p>`).join('');
 
-  // Fotos
-  const foto1 = b64Fotos[0] || null;
-  const foto2 = b64Fotos[1] || null;
-  const fotosRestantes = b64Fotos.slice(2).filter(Boolean);
+    // Conclusión auto
+    const infra = data.infraestructura?.length ? data.infraestructura.join(', ') : null;
+    const personas = data['personas-afectadas'];
+    const concluFrase = data.amenaza === 'si'
+      ? `La remoción en masa se encuentra <b>activa</b> y podría afectar${infra ? ' a ' + esc(infra) : ''}${personas ? ' con ' + esc(personas) + ' personas afectadas' : ''} ante futuras reactivaciones, especialmente frente a nuevos eventos de lluvia o sismos.`
+      : data.amenaza === 'incierta'
+        ? `La remoción en masa se encuentra <b>en evaluación</b>; no se descarta que el proceso pueda reactivarse mientras persistan las condiciones de inestabilidad.`
+        : `La remoción en masa se encuentra <b>inactiva</b> al momento de la visita, sin perjuicio de mantener el monitoreo del sector.`;
 
-  const fotoCaption = (i) => {
-    const f = fotos[i];
-    if (!f) return '';
-    const az = f.azimuth!=null ? ` 🧭 ${f.azimuth}°N` : '';
-    return `${f.desc||''}${az}`.trim();
-  };
+    // Recomendaciones: checklist + texto libre; si vacío, sugerencias generales por defecto
+    let recomList = [...(data['recomendaciones-check'] || [])];
+    if ((data['recomendaciones-libre'] || '').trim()) {
+      data['recomendaciones-libre'].split(/\n+/).map(s => s.trim()).filter(Boolean).forEach(s => recomList.push(s));
+    }
+    if (recomList.length === 0) {
+      recomList = [
+        'Mantener el monitoreo periódico del sector, con mayor frecuencia ante eventos de lluvia o sismos.',
+        'Implementar un sistema de encauzamiento y conducción de aguas lluvias para evitar la saturación e infiltración en el talud.',
+        'Restringir y señalizar el acceso a la zona afectada mientras se mantengan las condiciones de inestabilidad.',
+      ];
+    }
+    const recomHtml = recomList.map((r, i) => `<p style="margin:0 0 5px 0;text-align:justify">${String.fromCharCode(97 + i)}. ${esc(r)}</p>`).join('');
 
-  const fotosAdicionalesHtml = fotosRestantes.map((b64, i) => `
-    <div style="margin-top:10px;page-break-inside:avoid">
-      <img src="${b64}" style="max-width:100%;max-height:180px;object-fit:cover;border:1px solid #ccc">
-      <p style="font-size:8pt;color:#555;margin-top:3px"><i>Foto ${i+3}${fotoCaption(i+2)?': '+esc(fotoCaption(i+2)):''}</i></p>
-    </div>`).join('');
+    // Fotos
+    const fotoCaption = (i) => {
+      const f = fotos[i]; if (!f) return '';
+      const az = f.azimuth != null ? ` (azimut ${f.azimuth}°N)` : '';
+      return `${f.desc || ''}${az}`.trim();
+    };
+    const figLetters = ['B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    const fotosHtml = b64Fotos.map((b64, i) => b64 ? `
+      <div style="margin-top:8px;page-break-inside:avoid;text-align:center">
+        <img src="${b64}" width="440" style="max-width:100%;border:1px solid #999">
+        <p style="font-size:8.5pt;color:#333;margin:3px 0 0 0;font-style:italic">Figura ${figLetters[i] || (i + 1)}. ${esc(fotoCaption(i)) || 'Fotografía de terreno.'}</p>
+      </div>` : '').join('');
 
-  const today = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const today = new Date().toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const iniciales = (data['prof-iniciales'] || getIniciales() || '___').toUpperCase();
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
-<title>MINUTA ATG FLASH ${regionCorta}</title>
-<style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #111; padding: 15mm 18mm; }
-.membrete { margin-bottom:12px; }
-.gob-mark { width:46mm; height:auto; display:block; }
-.gob-tag { font-size:9pt; font-weight:bold; letter-spacing:0.4px; color:#25306B; margin-top:5px; }
-.titulo-minuta { text-align:center; font-weight:bold; font-size:11pt; margin-bottom:2px; text-decoration:underline; }
-.titulo-inst { text-align:center; font-size:9.5pt; margin-bottom:2px; }
-.titulo-resumen { text-align:center; font-weight:bold; font-size:10pt; margin-bottom:8px; }
-table.main { width:100%; border-collapse:collapse; border:1.5px solid #222; }
-table.main td, table.main th { border:1px solid #555; padding:4px 7px; vertical-align:top; font-size:10pt; }
-table.main th { background:#ddd; font-weight:bold; text-align:left; }
-.desc-row { background:#e8e8e8; font-weight:bold; font-size:10pt; }
-.lbl { font-weight:bold; }
-.foto-td { vertical-align:top; text-align:center; padding:4px; }
-.foto-td img { max-width:100%; max-height:200px; object-fit:cover; border:1px solid #aaa; }
-.foto-cap { font-size:7.5pt; color:#444; margin-top:2px; font-style:italic; }
-.foto2 { width:100%; text-align:center; border-top:1px solid #555; padding:6px; }
-.foto2 img { max-width:100%; max-height:220px; object-fit:cover; border:1px solid #aaa; }
-.section-header { background:#222; color:#fff; font-weight:bold; text-align:center; font-size:10pt; padding:4px; }
-.obs-text { padding:6px 8px; font-size:10pt; text-align:justify; }
-.conc-header { background:#ddd; font-weight:bold; text-align:center; font-size:10pt; padding:4px; border-top:1px solid #555; }
-.conc-text { padding:6px 8px; font-size:10pt; }
-.conc-text ol { margin-left:18px; }
-.conc-text li { margin-bottom:4px; text-align:justify; }
-.footer-sig { text-align:right; font-size:9.5pt; margin-top:10px; font-weight:bold; }
-.refs { font-size:8.5pt; margin-top:10px; color:#333; }
-/* @page margin:0 evita que el navegador imprima su encabezado con la URL/fecha; los márgenes los da el padding del body */
-@media print { body { padding:12mm 15mm; } @page { margin:0; } }
-</style></head><body>
+    const styleCss = `
+      body{font-family:Arial,sans-serif;font-size:10.5pt;color:#111;}
+      p{margin:0 0 4px 0;}
+      .tag{font-size:9pt;font-weight:bold;letter-spacing:.4px;color:#25306B;margin:4px 0 10px 0;}
+      .titulo{font-weight:bold;font-size:12pt;text-align:center;margin:4px 0 2px 0;}
+      .subtitulo{font-size:10pt;text-align:center;font-style:italic;margin-bottom:8px;}
+      table{border-collapse:collapse;}
+      .info{width:100%;border:1px solid #333;}
+      .info td{border:1px solid #666;padding:5px 8px;vertical-align:top;font-size:9.5pt;}
+      .lbl{font-weight:bold;}
+      .sec{background:#25306B;color:#fff;font-weight:bold;padding:4px 8px;margin:12px 0 6px 0;font-size:10.5pt;}
+      .firma{text-align:right;font-weight:bold;margin-top:14px;}`;
 
-<div class="membrete">
-  <svg class="gob-mark" viewBox="0 0 200 26" xmlns="http://www.w3.org/2000/svg">
-    <rect x="0" y="0" width="102" height="26" fill="#006BB9"/>
-    <rect x="102" y="0" width="98" height="26" fill="#FF1D3D"/>
-    <polygon points="102,2 104.59,9.44 112.46,9.60 106.19,14.36 108.47,21.90 102,17.4 95.53,21.90 97.82,14.36 91.54,9.60 99.41,9.44" fill="#ffffff"/>
-  </svg>
-  <div class="gob-tag">SERNAGEOMIN &nbsp;·&nbsp; GEOLOGÍA APLICADA</div>
-</div>
+    const body = `
+<img src="${membreteBarPng()}" width="180" style="display:block">
+<div class="tag">SERNAGEOMIN &nbsp;&middot;&nbsp; GEOLOG&Iacute;A APLICADA</div>
 
-<div class="titulo-minuta">MINUTA ATG FLASH ${regionCorta} XXXX</div>
-<div class="titulo-inst">SERVICIO NACIONAL DE GEOLOGÍA Y MINERÍA SERNAGEOMIN</div>
-<div class="titulo-resumen">RESUMEN DE ESTADO DE REMOCIÓN EN MASA</div>
+<div class="titulo">${esc(tituloReporte)}</div>
+<div class="subtitulo">Descripci&oacute;n de remoci&oacute;n en masa tipo ${esc(tipo)} observada el ${esc(fechaStr)}</div>
 
-<table class="main">
+<table class="info">
   <tr>
-    <td colspan="2" class="desc-row">
-      Descripción de la remoción en masa de tipo <u>${esc(tipo)}</u> observada el ${esc(data['hora-ingreso']||fechaStr)}
-    </td>
-  </tr>
-  <tr>
-    <td style="width:48%;vertical-align:top">
-      ${data.id ? `<p><span class="lbl">ID RM:</span> ${esc(data.id)}</p>` : ''}
-      <p><span class="lbl">Día Evento:</span> ${esc(fechaStr)}</p>
-      <p><span class="lbl">Desencadenante:</span> ${esc(data.desencadenante||'No registrado')}</p>
-      <p style="margin-top:6px"><span class="lbl">IDENTIFICACIÓN:</span> Remoción en masa</p>
-      <p><span class="lbl">TIPO:</span> ${esc(tipo)}</p>
+    <td style="width:50%">
+      <p><span class="lbl">IDENTIFICACIÓN:</span> Remoción en masa</p>
+      <p><span class="lbl">TIPO PRINCIPAL:</span> ${esc(tipo)}</p>
+      <p><span class="lbl">UBICACIÓN:</span> ${esc(localidad)}</p>
+      <p><span class="lbl">COORDENADAS:</span> ${esc(coordStr)}</p>
+      <p><span class="lbl">DÍA EVENTO:</span> ${esc(fechaStr)}</p>
+      <p><span class="lbl">DESENCADENANTE:</span> ${esc(data.desencadenante || 'No registrado')}</p>
+      <p><span class="lbl">ESTADO:</span> ${esc(estado)}</p>
+      <p><span class="lbl">ÁREA Y VOLUMEN (ORDEN DE MAGNITUD):</span> ${esc(areaVol)}</p>
       <p><span class="lbl">ANTECEDENTE:</span> ${esc(antecedente)}</p>
-      <table style="width:100%;margin-top:6px;border-collapse:collapse">
-        <tr><td style="border:1px solid #888;padding:3px 6px" class="lbl">Estado</td><td style="border:1px solid #888;padding:3px 6px">${esc(estado)}</td></tr>
-        ${areaEstimada?`<tr><td style="border:1px solid #888;padding:3px 6px" class="lbl">Área (orden)</td><td style="border:1px solid #888;padding:3px 6px">${areaEstimada}</td></tr>`:''}
-      </table>
-      <p style="margin-top:6px" class="lbl">Ubicación</p>
-      <p>${esc(localidad)}</p>
-      <p style="margin-top:6px" class="lbl">Coordenada de referencia</p>
-      <p>${esc(coordStr)}</p>
+      ${data.id ? `<p><span class="lbl">ID RM:</span> ${esc(data.id)}</p>` : ''}
     </td>
-    <td class="foto-td">
-      ${foto1 ? `<img src="${foto1}"><p class="foto-cap">${esc(fotoCaption(0))}</p>` : '<p style="color:#aaa;font-size:9pt">Sin foto 1</p>'}
-    </td>
-  </tr>
-  ${foto2 ? `<tr><td colspan="2" class="foto2"><img src="${foto2}"><p class="foto-cap" style="text-align:center">${esc(fotoCaption(1))}</p></td></tr>` : ''}
-  <tr>
-    <td colspan="2">
-      <div class="section-header">Insumos utilizados para el análisis</div>
-      <table style="width:100%;border-collapse:collapse">
-        <tr>
-          <td style="padding:4px 8px;width:50%;border-right:1px solid #888">Imágenes satelitales (Esri World Imagery)</td>
-          <td style="padding:4px 8px">Fotos de terreno${fotos.filter(f=>f.blob).length>0?' ('+fotos.filter(f=>f.blob).length+' fotografías)':''}</td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2">
-      <div class="section-header">Observaciones</div>
-      <div class="obs-text">${observaciones}</div>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2">
-      <div class="conc-header">Conclusiones y recomendaciones</div>
-      <div class="conc-text">
-        <p style="margin-bottom:8px;text-align:justify">${concluFrase}</p>
-        <ol>${recomendaciones.map(r=>`<li>${r}</li>`).join('')}</ol>
-      </div>
+    <td style="width:50%;text-align:center">
+      ${figuraA ? `<img src="${figuraA}" width="330" style="max-width:100%;border:1px solid #999"><p style="font-size:8.5pt;color:#333;margin:3px 0 0 0;font-style:italic">Figura A. Ubicación de la remoción en masa (imagen satelital con grilla UTM).</p>` : '<p style="color:#999;font-size:9pt">Figura A: sin imagen satelital (sin conexión al capturar).</p>'}
     </td>
   </tr>
 </table>
 
-${fotosAdicionalesHtml ? `<div style="margin-top:10px"><b>Fotografías adicionales</b>${fotosAdicionalesHtml}</div>` : ''}
+<div class="sec">Insumos utilizados para el análisis</div>
+<p>Fotografías de terreno${fotos.filter(f => f.blob).length > 0 ? ' (' + fotos.filter(f => f.blob).length + ' fotografías)' : ''}; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.</p>
 
-<div class="footer-sig">${today}/${esc(data.autor||'___')}_UATEG</div>
+<div class="sec">Observaciones</div>
+${observaciones}
 
-<div class="refs">
-  <b>Referencias:</b><br>
-  <span style="color:#aaa">[Agregar referencias si corresponde]</span>
-</div>
+<div class="sec">Conclusiones y recomendaciones</div>
+<p style="text-align:justify;margin-bottom:8px">${concluFrase}</p>
+<p style="text-align:justify;margin-bottom:6px">Se recomienda lo siguiente:</p>
+${recomHtml}
 
-</body></html>`;
+${fotosHtml ? `<div class="sec">Registro fotográfico</div>${fotosHtml}` : ''}
 
-  // Usar iframe oculto para evitar bloqueo de popups en móvil
-  let iframe = document.getElementById('pdf-iframe');
-  if (iframe) iframe.remove();
-  iframe = document.createElement('iframe');
-  iframe.id = 'pdf-iframe';
-  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none';
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  setTimeout(() => {
-    iframe.contentWindow.focus();
-    iframe.contentWindow.print();
-    setTimeout(() => iframe.remove(), 2000);
-  }, 800);
+<p class="firma">Elaborado el ${esc(today)}/${esc(iniciales)}_UATEG</p>`;
+
+    const idTag = (data.id || tipo).replace(/[^A-Za-z0-9_-]/g, '_');
+    const filename = `RETERM_${regionCorta.replace(/\s+/g, '_')}_${nReterm}_${idTag}.doc`;
+    downloadWord(body, filename, styleCss);
+  } catch (err) {
+    alert('Error al generar el informe RETERM: ' + err.message);
+    console.error(err);
+  } finally {
+    loading.classList.remove('open');
+  }
 }
 
 // =====================
@@ -2586,9 +2684,12 @@ async function buildRMRecord() {
   msg.textContent = 'Capturando imagen satelital...';
   let satelitalB64 = null;
   try { satelitalB64 = await captureSatelitalBase64(); } catch {}
+  const coords = getCoords();
+  let figuraA = null;
+  if (coords) { try { figuraA = await capturarFiguraA(coords.lat, coords.lng); } catch {} }
   loading.classList.remove('open');
 
-  const data = { ...collectFormData(), geotiffBounds };
+  const data = { ...collectFormData(), geotiffBounds, figuraA };
   const fotos = fotosData
     .filter(f => f.blob || f.desc || f.azimuth != null)
     .map(f => ({ blob: f.blob, desc: f.desc, azimuth: f.azimuth }));
@@ -2626,7 +2727,7 @@ function resetFormForNewRM() {
   setToggle('zona-toggle', 'generacion');
   clearToggle('amenaza-toggle');
   clearToggle('plasticidad-toggle');
-  ['granulometria-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips'].forEach(clearChips);
+  ['granulometria-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips', 'recom-chips'].forEach(clearChips);
   document.getElementById('estructuras-dip-list').innerHTML = '';
   updateMorfoFields('');
   fotosData = [];
@@ -2666,8 +2767,10 @@ function populateForm(rec) {
   setChips('geometria-ladera-chips', d['geometria-ladera']);
   setChips('estructuras-chips', d.estructuras);
   setChips('infra-chips', d.infraestructura);
+  setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','region','localidad','n-antecedente','hora-ingreso']
+  setEl('recom-libre', d['recomendaciones-libre']);
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','n-reterm','hora-ingreso']
     .forEach(id => setEl(id, d[id]));
   setEl('fecha-aprox', d['fecha-aprox']);
   setEl('hora-desconocida', d['hora-desconocida']);
@@ -2715,7 +2818,7 @@ async function renderRMsList() {
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
         <button type="button" data-act="abrir" data-key="${r.key}" style="${bs}">✏️ Abrir</button>
         <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
-        <button type="button" data-act="pdf" data-key="${r.key}" style="${bs}">🖨️ PDF</button>
+        <button type="button" data-act="pdf" data-key="${r.key}" style="${bs}">📄 Word</button>
         <button type="button" data-act="del" data-key="${r.key}" style="${bs};color:#e63946;border-color:#fecaca">🗑️</button>
       </div>
     </div>`;
@@ -2728,7 +2831,7 @@ async function handleRMAction(act, key) {
   const rec = savedRMsCache.find(r => r.key === key);
   if (!rec) return;
   if (act === 'kmz') { closeRMsModal(); return generateKMZ(rec); }
-  if (act === 'pdf') { closeRMsModal(); return generatePDF(rec); }
+  if (act === 'pdf') { closeRMsModal(); return generateRETERM(rec); }
   if (act === 'abrir') { closeRMsModal(); return populateForm(rec); }
   if (act === 'del' && confirm(`¿Eliminar la RM "${rec.id}"?`)) {
     await rmDelete(key);
@@ -3016,8 +3119,71 @@ function legendaMapa() {
   box.querySelector('#lg-close').onclick = () => ov.remove();
 }
 
+// ============================ Respaldo (exportar / importar JSON) ============================
+// Toda la información se guarda en IndexedDB, en ESTE dispositivo (no se sube a ningún servidor).
+// El respaldo la empaqueta en un archivo .json portable (fotos incluidas como base64).
+function _blobToDataURL(blob) {
+  return new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+}
+async function _dataURLToBlob(dataUrl) {
+  const r = await fetch(dataUrl); return await r.blob();
+}
+async function exportBackup() {
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Preparando respaldo...';
+  try {
+    const rms = await rmGetAll();
+    const lineas = await lineaGetAll();
+    const rmsSer = [];
+    for (const r of rms) {
+      const fotos = [];
+      for (const f of (r.fotos || [])) {
+        fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : null });
+      }
+      rmsSer.push({ ...r, fotos });
+    }
+    const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), rms: rmsSer, lineas };
+    const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+    downloadBlob(blob, `respaldo_remociones_${todayStr()}.json`);
+  } catch (e) {
+    alert('No se pudo generar el respaldo: ' + e.message); console.error(e);
+  } finally { loading.classList.remove('open'); }
+}
+async function importBackup(file) {
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Importando respaldo...';
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    if (!backup || !Array.isArray(backup.rms)) throw new Error('El archivo no es un respaldo válido.');
+    const existentes = await rmGetAll();
+    const idsExistentes = new Set(existentes.map(r => r.id));
+    let nuevas = 0, omitidas = 0;
+    for (const r of backup.rms) {
+      if (r.id && idsExistentes.has(r.id)) { omitidas++; continue; }
+      const fotos = [];
+      for (const f of (r.fotos || [])) {
+        fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : null });
+      }
+      const rec = { ...r, fotos };
+      delete rec.key;   // deja que IndexedDB asigne una key nueva
+      await rmAdd(rec);
+      nuevas++;
+    }
+    for (const l of (backup.lineas || [])) { try { await lineaPut(l); } catch {} }
+    await refreshRMsCount();
+    if (typeof renderRMsList === 'function') renderRMsList();
+    alert(`Respaldo importado: ${nuevas} RM nuevas${omitidas ? `, ${omitidas} ya existían (omitidas)` : ''}. Abre el Mapa para verlas.`);
+  } catch (e) {
+    alert('No se pudo importar el respaldo: ' + e.message); console.error(e);
+  } finally { loading.classList.remove('open'); }
+}
+
 // ----- Wiring -----
 document.getElementById('btn-ver-rms').addEventListener('click', openRMsModal);
+document.getElementById('btn-export-backup').addEventListener('click', exportBackup);
+document.getElementById('btn-import-backup').addEventListener('click', () => document.getElementById('input-backup').click());
+document.getElementById('input-backup').addEventListener('change', e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
 document.getElementById('rms-close').addEventListener('click', closeRMsModal);
 document.getElementById('rms-modal').addEventListener('click', e => { if (e.target.id === 'rms-modal') closeRMsModal(); });
 document.getElementById('btn-guardar-rm').addEventListener('click', saveCurrentRM);
