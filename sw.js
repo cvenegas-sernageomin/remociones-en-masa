@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v19';
+const CACHE_NAME = 'remociones-v20';
 const ASSETS = [
   './',
   './index.html',
@@ -53,6 +53,9 @@ self.addEventListener('fetch', e => {
 
   // Minutas ATG Flash: servicio REST de ArcGIS (features + adjuntos PDF) → siempre a la red
   if (req.url.includes('services1.arcgis.com')) return;
+
+  // Precipitación acumulada (Open-Meteo) → siempre a la red (dato en vivo, no cachear)
+  if (req.url.includes('api.open-meteo.com')) return;
 
   const esDoc = req.mode === 'navigate' || req.destination === 'document' ||
                 req.url.endsWith('/') || req.url.endsWith('index.html');

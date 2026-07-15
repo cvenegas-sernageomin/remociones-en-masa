@@ -432,6 +432,17 @@ body.map-mode #nav-buttons { display: none !important; }
     </select>
   </div>
 
+  <!-- Precipitación acumulada (solo si el desencadenante es lluvia) -->
+  <div class="field" id="lluvia-acum-field" style="display:none">
+    <label>Precipitación acumulada previa (mm)</label>
+    <div class="field-row" style="gap:8px">
+      <input type="number" id="lluvia-24h" min="0" step="0.1" placeholder="Últimas 24 h" style="flex:1">
+      <input type="number" id="lluvia-48h" min="0" step="0.1" placeholder="Últimas 48 h" style="flex:1">
+    </div>
+    <button type="button" id="btn-lluvia-gps" style="margin-top:8px;width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.88rem">📡 Estimar con GPS (Open-Meteo)</button>
+    <div id="lluvia-fuente" style="font-size:0.72rem;color:var(--muted);margin-top:5px">Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.</div>
+  </div>
+
   <div class="field">
     <label>Tipo de remoción <button class="help-btn" data-help="tipo">?</button></label>
     <select id="tipo-movimiento">
@@ -916,7 +927,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v19';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v20';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2302,6 +2313,45 @@ function regionFromCoords(c) {
   return 'Magallanes (XII)';
 }
 
+// --- Precipitación acumulada previa (aparece solo si el desencadenante es lluvia) ---
+function toggleLluviaAcum() {
+  const dv = document.getElementById('desencadenante')?.value || '';
+  const f = document.getElementById('lluvia-acum-field');
+  if (f) f.style.display = /lluvia/i.test(dv) ? '' : 'none';
+}
+// Estima la lluvia acumulada 24/48 h en el punto GPS con Open-Meteo (modelo, CORS libre, sin token).
+// Acumula hasta la fecha/hora del evento si están; si no, hasta ahora. Siempre editable a mano.
+async function estimarLluviaGPS() {
+  const coords = getCoords();
+  if (!coords) { alert('Marca la ubicación (GPS o en el mapa) antes de estimar la lluvia.'); return; }
+  const btn = document.getElementById('btn-lluvia-gps');
+  const fuente = document.getElementById('lluvia-fuente');
+  const txt0 = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Consultando…';
+  try {
+    const fecha = document.getElementById('fecha-inicio')?.value;
+    const hora = document.getElementById('hora-inicio')?.value;
+    const end = fecha ? new Date(`${fecha}T${hora || '23:00'}:00`) : new Date();
+    const daysBack = Math.min(92, Math.max(2, Math.ceil((Date.now() - end.getTime()) / 86400000) + 3));
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&hourly=precipitation&past_days=${daysBack}&forecast_days=1&timezone=auto`;
+    const d = await (await fetch(u)).json();
+    const t = d.hourly?.time || [], p = d.hourly?.precipitation || [];
+    if (!t.length) throw new Error('sin datos');
+    let idx = -1;
+    for (let i = 0; i < t.length; i++) { if (new Date(t[i]).getTime() <= end.getTime()) idx = i; else break; }
+    if (idx < 0) idx = t.length - 1;
+    const suma = n => { let s = 0; for (let i = Math.max(0, idx - n + 1); i <= idx; i++) s += (p[i] || 0); return Math.round(s * 10) / 10; };
+    document.getElementById('lluvia-24h').value = suma(24);
+    document.getElementById('lluvia-48h').value = suma(48);
+    const cuando = new Date(t[idx]).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    fuente.textContent = `Estimación Open-Meteo (modelo, en el punto GPS) hasta ${cuando}. Ajusta si tienes dato de estación.`;
+  } catch (e) {
+    console.warn('Lluvia GPS:', e);
+    fuente.textContent = 'No se pudo estimar automáticamente. Ingresa los valores manualmente.';
+  } finally { btn.disabled = false; btn.textContent = txt0; }
+}
+document.getElementById('desencadenante')?.addEventListener('change', toggleLluviaAcum);
+document.getElementById('btn-lluvia-gps')?.addEventListener('click', estimarLluviaGPS);
+
 function collectFormData() {
   return {
     id: document.getElementById('rm-id')?.value,
@@ -2314,6 +2364,9 @@ function collectFormData() {
     'hora-desconocida': document.getElementById('hora-desconocida')?.checked,
     'hora-fin': document.getElementById('hora-fin')?.value,
     desencadenante: document.getElementById('desencadenante')?.value,
+    'lluvia-24h': document.getElementById('lluvia-24h')?.value,
+    'lluvia-48h': document.getElementById('lluvia-48h')?.value,
+    'lluvia-fuente': document.getElementById('lluvia-fuente')?.textContent || '',
     'tipo-movimiento': document.getElementById('tipo-movimiento')?.value,
     ...Object.fromEntries(currentMorfoFields.map(f => [f.id, getMorfoValue(f.id)])),
     granulometria: getChipsValues('granulometria-chips'),
@@ -2542,6 +2595,13 @@ async function generateRETERM(record) {
     const obsPartes = [];
     obsPartes.push(`En el sector de ${esc(localidad)}${data.region ? ', Región de ' + esc(data.region.replace(/\s*\(.*\)/, '')) : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
     if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
+    if (data['lluvia-24h'] || data['lluvia-48h']) {
+      const partes = [];
+      if (data['lluvia-24h']) partes.push(`${esc(data['lluvia-24h'])} mm en 24 h`);
+      if (data['lluvia-48h']) partes.push(`${esc(data['lluvia-48h'])} mm en 48 h`);
+      const estim = /open-meteo/i.test(data['lluvia-fuente'] || '') ? ' (estimación modelada Open-Meteo en el punto)' : '';
+      obsPartes.push(`La precipitación acumulada previa al evento fue de ${partes.join(' y ')}${estim}.`);
+    }
     if (morfoTexto) obsPartes.push(esc(morfoTexto) + '.');
     if (data.litologia) {
       let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
@@ -2885,6 +2945,8 @@ function resetFormForNewRM() {
   document.getElementById('btn-add-foto').style.display = '';
   markerPlaced = false;
   document.getElementById('coords-display').textContent = 'Sin ubicación GPS aún...';
+  { const lf = document.getElementById('lluvia-fuente'); if (lf) lf.textContent = 'Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.'; }
+  toggleLluviaAcum();
   generateRMId().then(id => { document.getElementById('rm-id').value = id; });
   goToStep(1);
 }
@@ -2920,8 +2982,9 @@ function populateForm(rec) {
   setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
   setEl('recom-libre', d['recomendaciones-libre']);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','n-reterm','hora-ingreso']
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','n-reterm','hora-ingreso']
     .forEach(id => setEl(id, d[id]));
+  { const lf = document.getElementById('lluvia-fuente'); if (lf && d['lluvia-fuente']) lf.textContent = d['lluvia-fuente']; }
   setEl('fecha-aprox', d['fecha-aprox']);
   setEl('hora-desconocida', d['hora-desconocida']);
   ['sismo-previo', 'fecha-aprox', 'hora-desconocida', 'desencadenante'].forEach(id => {
