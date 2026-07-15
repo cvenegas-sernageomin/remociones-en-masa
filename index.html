@@ -275,18 +275,6 @@ body.map-mode #nav-buttons { display: none !important; }
 }
 .btn-prev { background: var(--light); color: var(--text); }
 .btn-next { background: var(--red); color: white; }
-.btn-generate {
-  background: var(--success);
-  border: none;
-  border-radius: 8px;
-  color: white;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 700;
-  padding: 14px;
-  width: 100%;
-  display: none;
-}
 
 /* Help modal */
 #help-modal {
@@ -854,12 +842,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <input type="text" id="hora-ingreso" readonly style="color:var(--muted)">
   </div>
 
-  <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
-    <button class="btn-generate" id="btn-generate" style="flex:1;min-width:140px">⬇️ Generar KMZ</button>
-    <button class="btn-generate" id="btn-pdf" style="flex:1;min-width:140px;background:var(--surface2);color:var(--fg);border:1px solid var(--border)">📄 Informe RETERM (Word)</button>
-  </div>
-
-  <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:10px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
+  <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:16px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
     🏁 Finalizar RM (guarda todo: Word + KMZ + respaldo)
   </button>
   <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda la RM en el dispositivo, descarga el informe Word, el KMZ y el respaldo JSON (con fecha, hora e iniciales en el nombre), y limpia el formulario para describir la siguiente.</p>
@@ -959,7 +942,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v28';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v29';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -986,10 +969,6 @@ function goToStep(n) {
 
   document.getElementById('btn-prev').style.display = n > 1 ? 'block' : 'none';
   document.getElementById('btn-next').style.display = n < TOTAL_STEPS ? 'block' : 'none';
-  const isLast = n === TOTAL_STEPS;
-  document.getElementById('btn-generate').style.display = isLast ? 'block' : 'none';
-  document.getElementById('btn-pdf').style.display = isLast ? 'block' : 'none';
-
   if (n === TOTAL_STEPS) {
     document.getElementById('hora-ingreso').value = new Date().toLocaleString('es-CL');
     const savedAutor = localStorage.getItem('rem-autor') || '';
@@ -2361,13 +2340,6 @@ async function shareOrDownload(blob, filename, mime) {
   downloadBlob(blob, filename);
   return 'download';
 }
-
-document.getElementById('btn-generate').addEventListener('click', () => generateKMZ());
-
-// =====================
-// INFORME PDF
-// =====================
-document.getElementById('btn-pdf').addEventListener('click', () => generateRETERM());
 
 // Región de Chile aproximada a partir de las coordenadas (la ubicación define la región,
 // ya no se selecciona a mano). Franja central: interior = Metropolitana, costa = Valparaíso/O'Higgins.
