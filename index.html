@@ -932,7 +932,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v22';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v23';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1121,7 +1121,7 @@ function updateMorfoFields(tipo) {
     div.innerHTML = `
       <label>${f.label} (${f.unit}) <button type="button" class="help-btn" data-help="${f.help}" aria-label="Ayuda: ${f.label}">?</button></label>
       <div class="field-row">
-        <input type="number" id="${f.id}" min="0" step="0.1" placeholder="ej: 10" style="flex:1">
+        <input type="text" inputmode="decimal" id="${f.id}" placeholder="ej: 10" style="flex:1">
         <label style="font-size:0.8rem;white-space:nowrap">
           <input type="checkbox" id="${f.id}-est"> est.
         </label>
@@ -1137,10 +1137,12 @@ document.getElementById('tipo-movimiento').addEventListener('change', e => {
 updateMorfoFields('');
 
 function getMorfoValue(id) {
-  const val = document.getElementById(id)?.value;
+  const raw = document.getElementById(id)?.value;
   const est = document.getElementById(`${id}-est`)?.checked;
-  if (!val) return null;
-  return { valor: parseFloat(val), estimado: est };
+  if (!raw) return null;
+  const num = parseFloat(String(raw).trim().replace(',', '.'));
+  if (isNaN(num)) return null;
+  return { valor: num, estimado: est };
 }
 
 // =====================
