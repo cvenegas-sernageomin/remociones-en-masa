@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v29';
+const CACHE_NAME = 'remociones-v30';
 const ASSETS = [
   './',
   './index.html',
@@ -41,8 +41,9 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const req = e.request;
 
-  // Dejar que leaflet.offline maneje los tiles de Esri (IndexedDB)
-  if (req.url.includes('arcgisonline.com')) return;
+  // Dejar que leaflet.offline maneje los tiles de mapa (IndexedDB) — Esri y OpenTopoMap;
+  // si el SW los cacheara, el caché crecería sin límite y serviría tiles viejos
+  if (req.url.includes('arcgisonline.com') || req.url.includes('opentopomap.org')) return;
 
   // Estaciones meteorológicas: KML del visor de alertas + gráficos QuickChart
   // van SIEMPRE a la red (datos en vivo; no cachear o el refresco de 3 h serviría datos viejos)

@@ -942,7 +942,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v29';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v30';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1972,7 +1972,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   const iconFile = `icons/${TIPO_ICON_MAP[tipo] || 'otro'}.png`;
   const kmlColor = ZONA_COLOR[zona] || ZONA_COLOR.generacion;
 
-  const row = (label, val) => val ? `<tr><td style="color:#888;padding:4px 8px;white-space:nowrap"><b>${label}</b></td><td style="padding:4px 8px">${val}</td></tr>` : '';
+  const row = (label, val) => val ? `<tr><td style="color:#888;padding:4px 8px;white-space:nowrap"><b>${label}</b></td><td style="padding:4px 8px">${escapeHtml(val)}</td></tr>` : '';
 
   const fechaStr = (() => {
     let s = data['fecha-inicio'] || 'No registrada';

@@ -1,0 +1,4 @@
+# Artefactos locales de análisis/pruebas — nunca publicar
+graphify-out/
+catastro-remociones-pc.html
+*.log
