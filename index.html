@@ -942,7 +942,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v30';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v31';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3321,6 +3321,11 @@ const EST_KML_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/aler
 const EST_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h (el cron de alertas-redes actualiza ~2-5 h)
 const EST_COLOR = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d', gris: '#8a8a8a' };
 const EST_RADIO = { verde: 4, amarillo: 6, rojo: 8, gris: 3 };
+// En pantalla táctil los puntos se agrandan y el área de toque se amplía (tolerance del canvas):
+// un círculo de 4-6 px es imposible de tocar con el dedo.
+const ES_TACTIL = (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window;
+const EST_RADIO_EXTRA = ES_TACTIL ? 3 : 0;
+const TAP_TOLERANCIA = ES_TACTIL ? 14 : 5;
 // Redes con feed roto que nunca cargan lluvia real (se omiten). DGA: vismet devuelve
 // 0.0 fijo para toda la red DGA (verificado en alertas-redes, sin alternativa sin CAPTCHA).
 const EST_REDES_EXCLUIR = ['DGA'];
@@ -3338,9 +3343,9 @@ function initMapaFull() {
   mapaFullSavetiles = crearCapasBase(mapaFull);
   mapaFullMarkers = L.layerGroup().addTo(mapaFull);
   mapaFullLines = L.layerGroup().addTo(mapaFull);
-  estCanvas = L.canvas({ padding: 0.5 });          // renderer canvas: pinta ~1700 estaciones sin lag
+  estCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas: pinta ~1700 estaciones sin lag
   estLayer = L.layerGroup();                        // se agrega al mapa solo al activar el toggle
-  minCanvas = L.canvas({ padding: 0.5 });          // renderer canvas para las minutas ATG
+  minCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas para las minutas ATG
   minLayer = L.layerGroup();
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
@@ -3457,10 +3462,10 @@ function renderEstaciones() {
   (estData || []).forEach(e => {
     const color = EST_COLOR[e.estilo] || EST_COLOR.gris;
     const cm = L.circleMarker([e.lat, e.lon], {
-      renderer: estCanvas, radius: EST_RADIO[e.estilo] || 4,
+      renderer: estCanvas, radius: (EST_RADIO[e.estilo] || 4) + EST_RADIO_EXTRA,
       color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9
     });
-    cm.bindPopup(e.desc || ('<b>' + e.nombre + '</b>'), { maxWidth: 360 });
+    cm.bindPopup(e.desc || ('<b>' + e.nombre + '</b>'), { maxWidth: Math.min(360, window.innerWidth - 50) });
     estLayer.addLayer(cm);
   });
 }
@@ -3572,9 +3577,9 @@ function renderMinutas() {
   minLayer.clearLayers();
   (minData || []).forEach(m => {
     const cm = L.circleMarker([m.lat, m.lon], {
-      renderer: minCanvas, radius: 6, color: '#fff', weight: 1, fillColor: m.color, fillOpacity: 0.9
+      renderer: minCanvas, radius: 6 + EST_RADIO_EXTRA, color: '#fff', weight: 1, fillColor: m.color, fillOpacity: 0.9
     });
-    cm.bindPopup(() => minPopup(m), { maxWidth: 280 });
+    cm.bindPopup(() => minPopup(m), { maxWidth: Math.min(280, window.innerWidth - 50) });
     minLayer.addLayer(cm);
   });
 }
