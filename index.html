@@ -893,9 +893,6 @@ body.map-mode #nav-buttons { display: none !important; }
   <p id="loading-msg">Generando KMZ...</p>
 </div>
 
-  <!-- Módulo de dictado por voz: DEBE cargar ANTES del script principal (que llama a VozTerreno.init) -->
-  <script src="https://cvenegas-sernageomin.github.io/voz-terreno/voz-module.js"></script>
-
   <script>
 // =====================
 // CONSTANTES Y ESTADO
@@ -935,7 +932,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v21';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v22';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1131,10 +1128,6 @@ function updateMorfoFields(tipo) {
       </div>`;
     container.appendChild(div);
   });
-  if (typeof VozTerreno !== 'undefined') {
-    const morfoContainer = document.getElementById('morfometria-fields');
-    if (morfoContainer) VozTerreno.renderUI(morfoContainer);
-  }
 }
 
 document.getElementById('tipo-movimiento').addEventListener('change', e => {
@@ -3707,68 +3700,6 @@ refreshRMsCount().then(() => {
   if (idEl && !idEl.value) generateRMId().then(id => { idEl.value = id; });
 });
 
-// --- Voz Terreno ---
-if (typeof VozTerreno !== 'undefined') {
-  VozTerreno.init({
-    appId: 'catastro-remociones',
-    modulos: ['igneas', 'sedimentarias', 'metamorficas', 'cuaternario', 'varnes', 'isrm', 'alteracion'],
-    vocabulario_extra: [
-      { termino: 'coluvio grueso',      campoId: 'litologia',       valor: 'Depósito coluvial' },
-      { termino: 'roca muy fracturada', campoId: 'grado-alteracion',valor: 'W3 – Moderadamente meteorizada' },
-    ],
-    campos: [
-      { id: 'tipo-movimiento',  label: 'Tipo de remoción',  tipo: 'clasificacion',
-        valores: [
-          'Caída de roca','Caída de detritos','Caída de suelo',
-          'Vuelco de roca','Vuelco de detritos','Vuelco de suelo',
-          'Deslizamiento rotacional en roca','Deslizamiento rotacional en suelo',
-          'Deslizamiento traslacional en roca','Deslizamiento traslacional en detritos',
-          'Deslizamiento traslacional en suelo','Deslizamiento en cuña',
-          'Expansión lateral en roca','Expansión lateral en suelo',
-          'Flujo de detritos (debris flow)','Crecida de detritos (debris flood)',
-          'Aluvión / Lahar','Flujo de lodo (mudflow)','Flujo de tierra (earthflow)',
-          'Avalancha de roca (rock avalanche)','Reptación de suelo','Solifluxión',
-          'Movimiento complejo','Otro'
-        ]
-      },
-      { id: 'litologia',       label: 'Litología dominante',       tipo: 'clasificacion',
-        valores: [
-          'Granito / Granodiorita','Basalto / Andesita','Riolita / Ignimbrita',
-          'Pizarra / Esquisto','Caliza / Mármol','Arenisca / Lutita','Otro (roca)',
-          'Suelo residual (meteorización in situ)','Suelo volcánico (cenizas, pómez)',
-          'Depósito coluvial','Depósito fluvial (gravas, arenas)','Relleno antrópico','Otro (suelo)'
-        ]
-      },
-      { id: 'grado-alteracion', label: 'Grado de alteración',      tipo: 'isrm' },
-      { id: 'orientacion',      label: 'Orientación del escarpe',  tipo: 'angulo', rango: [0, 360] },
-      { id: 'dist-vivienda',    label: 'Distancia a vivienda (m)', tipo: 'numero', rango: [0, 50000] },
-      { id: 'efectos',          label: 'Efectos',                  tipo: 'texto_libre' },
-      { id: 'otros',            label: 'Observaciones',            tipo: 'texto_libre' },
-      { id: 'alto-escarpe',     label: 'Alto del escarpe (m)',     tipo: 'numero', rango: [0, 5000] },
-      { id: 'ancho-escarpe',    label: 'Ancho del escarpe (m)',    tipo: 'numero', rango: [0, 5000] },
-      { id: 'alto-corona',      label: 'Alto de la corona (m)',    tipo: 'numero', rango: [0, 5000] },
-      { id: 'ancho-corona',     label: 'Ancho de la corona (m)',   tipo: 'numero', rango: [0, 5000] },
-      { id: 'dist-horizontal',  label: 'Distancia horizontal (m)', tipo: 'numero', rango: [0, 100000] },
-      { id: 'dist-vertical',    label: 'Distancia vertical (m)',   tipo: 'numero', rango: [0, 10000] },
-      { id: 'ancho-canal',      label: 'Ancho del canal (m)',      tipo: 'numero', rango: [0, 5000] },
-      { id: 'ancho-deposito',   label: 'Ancho del depósito (m)',   tipo: 'numero', rango: [0, 10000] },
-      { id: 'espesor-deposito', label: 'Espesor del depósito (m)', tipo: 'numero', rango: [0, 500] },
-    ],
-    onFill: (id, valor) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.value = valor;
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  });
-
-  document.addEventListener('DOMContentLoaded', () => {
-    ['step-2','step-4','step-5'].forEach(stepId => {
-      const step = document.getElementById(stepId);
-      if (step) VozTerreno.renderUI(step);
-    });
-  });
-}
   </script>
 
   <script>
