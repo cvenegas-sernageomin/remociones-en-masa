@@ -840,7 +840,7 @@ body.map-mode #nav-buttons { display: none !important; }
 
   <div class="field">
     <label>N° Informe RETERM <button class="help-btn" data-help="n-reterm">?</button></label>
-    <input type="text" id="n-reterm" placeholder="ej: 07">
+    <input type="text" id="n-reterm" value="XX" readonly style="color:var(--muted)">
   </div>
 
   <div class="field">
@@ -958,7 +958,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v26';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v27';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1861,7 +1861,7 @@ const HELP_TEXTS = {
   },
   'n-reterm': {
     title: 'N° de Informe RETERM',
-    text: 'Número correlativo del Reporte Técnico de Remoción en Masa (RETERM) para la región y el año, ej: "06" para "LOS RÍOS 06/2026". Este número lo asigna la Dirección Regional; déjalo en blanco si aún no se ha asignado.'
+    text: 'Número correlativo del Reporte Técnico de Remoción en Masa (RETERM) para la región y el año, ej: "06" para "LOS RÍOS 06/2026". Este número lo asigna la Jefatura/Dirección Regional, no el profesional en terreno — por eso el campo queda fijo en "XX" y se completa después, al momento de formalizar el informe.'
   },
   autor: {
     title: 'Autor del registro',
@@ -3065,7 +3065,7 @@ async function saveCurrentRM() {
 function resetFormForNewRM() {
   document.querySelectorAll('.step input, .step select, .step textarea')
     .forEach(el => {
-      if (['hora-ingreso', 'autor', 'prof-iniciales'].includes(el.id)) return;
+      if (['hora-ingreso', 'autor', 'prof-iniciales', 'n-reterm'].includes(el.id)) return;
       if (el.type === 'checkbox') el.checked = false;
       else el.value = '';
     });
@@ -3119,8 +3119,9 @@ function populateForm(rec) {
   setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
   setEl('recom-libre', d['recomendaciones-libre']);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','n-reterm','hora-ingreso']
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso']
     .forEach(id => setEl(id, d[id]));
+  setEl('n-reterm', d['n-reterm'] || 'XX');
   { const lf = document.getElementById('lluvia-fuente'); if (lf && d['lluvia-fuente']) lf.textContent = d['lluvia-fuente']; }
   { const le = document.getElementById('lluvia-estacion'); if (le) le.textContent = d['lluvia-estacion'] || ''; }
   setEl('fecha-aprox', d['fecha-aprox']);
