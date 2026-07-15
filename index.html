@@ -841,6 +841,7 @@ body.map-mode #nav-buttons { display: none !important; }
   <div class="field">
     <label>N° Informe RETERM <button class="help-btn" data-help="n-reterm">?</button></label>
     <input type="text" id="n-reterm" value="XX" readonly style="color:var(--muted)">
+    <p style="font-size:0.72rem;color:var(--muted);margin:4px 0 0">Este número lo define la Jefatura al formalizar el informe, no se asigna en terreno.</p>
   </div>
 
   <div class="field">
@@ -958,7 +959,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v27';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v28';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
