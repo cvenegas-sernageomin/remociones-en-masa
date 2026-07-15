@@ -932,7 +932,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v23';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v24';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3416,17 +3416,50 @@ function minBtnEstado(txt, activo) {
   b.textContent = txt;
   b.classList.toggle('active', !!activo);
 }
+// Descarga el PDF como blob (en vez de target="_blank") porque las PWA instaladas
+// en modo standalone (típico en iOS) no pueden abrir pestañas nuevas — el link
+// con target="_blank" simplemente no hacía nada al tocarlo.
+async function descargarPdfMinuta(btn, p, m) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Descargando…';
+  try {
+    const r = await fetch(p.url, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    downloadBlob(blob, p.name || (m.nombre + '.pdf'));
+  } catch (err) {
+    alert('No se pudo descargar el PDF: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
 function minPopup(m) {
   const e = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const pdfs = m.pdfs.length
-    ? m.pdfs.map((p, i) => `<a href="${e(p.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;padding:8px 12px;background:#1f6feb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:.82rem">📄 Descargar PDF${m.pdfs.length > 1 ? ' ' + (i + 1) : ''}</a>`).join(' ')
-    : '<div style="color:#999;font-size:.78rem;margin-top:6px">Sin PDF adjunto</div>';
-  return `<div style="font-size:.83rem;line-height:1.5"><b>${e(m.nombre)}</b><br>`
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'font-size:.83rem;line-height:1.5';
+  wrap.innerHTML = `<b>${e(m.nombre)}</b><br>`
     + `<span style="color:#666">Fecha:</span> ${e(m.fecha)}<br>`
     + `<span style="color:#666">Tipo:</span> ${e(m.tipo)}<br>`
     + `<span style="color:#666">Detonante:</span> ${e(m.detonante)}<br>`
-    + `<span style="color:#666">Ubicación:</span> ${e(m.comuna)}, ${e(m.region)}`
-    + pdfs + `</div>`;
+    + `<span style="color:#666">Ubicación:</span> ${e(m.comuna)}, ${e(m.region)}`;
+  if (m.pdfs.length) {
+    m.pdfs.forEach((p, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = `📄 Descargar PDF${m.pdfs.length > 1 ? ' ' + (i + 1) : ''}`;
+      btn.style.cssText = 'display:inline-block;margin-top:8px;margin-right:6px;padding:8px 12px;background:#1f6feb;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.82rem;cursor:pointer';
+      btn.addEventListener('click', () => descargarPdfMinuta(btn, p, m));
+      wrap.appendChild(btn);
+    });
+  } else {
+    const noPdf = document.createElement('div');
+    noPdf.style.cssText = 'color:#999;font-size:.78rem;margin-top:6px';
+    noPdf.textContent = 'Sin PDF adjunto';
+    wrap.appendChild(noPdf);
+  }
+  return wrap;
 }
 function renderMinutas() {
   if (!minLayer) return;
