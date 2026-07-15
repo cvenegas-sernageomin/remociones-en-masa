@@ -459,8 +459,10 @@ body.map-mode #nav-buttons { display: none !important; }
       <input type="number" id="lluvia-24h" min="0" step="0.1" placeholder="Últimas 24 h" style="flex:1">
       <input type="number" id="lluvia-48h" min="0" step="0.1" placeholder="Últimas 48 h" style="flex:1">
     </div>
+    <input type="number" id="lluvia-7d" min="0" step="0.1" placeholder="Última semana (7 días)" style="width:100%;margin-top:8px">
     <button type="button" id="btn-lluvia-gps" style="margin-top:8px;width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.88rem">📡 Estimar con GPS (Open-Meteo)</button>
     <div id="lluvia-fuente" style="font-size:0.72rem;color:var(--muted);margin-top:5px">Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.</div>
+    <div id="lluvia-estacion" style="font-size:0.72rem;color:var(--muted);margin-top:2px"></div>
   </div>
 
   <div class="field">
@@ -956,7 +958,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v25';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v26';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2066,6 +2068,8 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 </table>
 <h3 style="color:#555;margin-top:12px">🌧️ Condiciones previas</h3>
 <table style="border-collapse:collapse;width:100%">
+  ${row('Precipitación 24 h / 48 h / 7 días', [data['lluvia-24h'] && data['lluvia-24h'] + ' mm', data['lluvia-48h'] && data['lluvia-48h'] + ' mm', data['lluvia-7d'] && data['lluvia-7d'] + ' mm'].filter(Boolean).join(' / ') || null)}
+  ${row('Estación de referencia', data['lluvia-estacion'] || null)}
   ${row('Lluvia previa intensa', data['lluvia-previa'])}
   ${row('Sismo previo', data['sismo-previo'] ? (data['sismo-previo'] + (data['sismo-magnitud'] ? ` (Mw ${data['sismo-magnitud']})` : '')) : null)}
   ${row('Intervención antrópica', data.antropico)}
@@ -2397,19 +2401,41 @@ function toggleLluviaAcum() {
   const f = document.getElementById('lluvia-acum-field');
   if (f) f.style.display = /lluvia/i.test(dv) ? '' : 'none';
 }
-// Estima la lluvia acumulada 24/48 h en el punto GPS con Open-Meteo (modelo, CORS libre, sin token).
+// Distancia entre dos puntos (km) — fórmula de Haversine.
+function distanciaKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, d2r = Math.PI / 180;
+  const dLat = (lat2 - lat1) * d2r, dLon = (lon2 - lon1) * d2r;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * d2r) * Math.cos(lat2 * d2r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+// Busca la estación (del mismo KML de la capa de Mapa) más cercana al punto. Carga el KML si no está en caché.
+async function estacionMasCercana(lat, lon) {
+  try {
+    if (!estData) await cargarEstaciones(false);
+    if (!estData || !estData.length) return null;
+    let mejor = null, mejorD = Infinity;
+    estData.forEach(e => {
+      const d = distanciaKm(lat, lon, e.lat, e.lon);
+      if (d < mejorD) { mejorD = d; mejor = e; }
+    });
+    return mejor ? { nombre: mejor.base || mejor.nombre, distKm: mejorD } : null;
+  } catch (e) { console.warn('Estación más cercana:', e); return null; }
+}
+// Estima la lluvia acumulada 24 h/48 h/7 días en el punto GPS con Open-Meteo (modelo, CORS libre, sin token).
 // Acumula hasta la fecha/hora del evento si están; si no, hasta ahora. Siempre editable a mano.
+// Además muestra el nombre de la estación real más cercana (capa de Mapa) como referencia.
 async function estimarLluviaGPS() {
   const coords = getCoords();
   if (!coords) { alert('Marca la ubicación (GPS o en el mapa) antes de estimar la lluvia.'); return; }
   const btn = document.getElementById('btn-lluvia-gps');
   const fuente = document.getElementById('lluvia-fuente');
+  const estacionEl = document.getElementById('lluvia-estacion');
   const txt0 = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Consultando…';
   try {
     const fecha = document.getElementById('fecha-inicio')?.value;
     const hora = document.getElementById('hora-inicio')?.value;
     const end = fecha ? new Date(`${fecha}T${hora || '23:00'}:00`) : new Date();
-    const daysBack = Math.min(92, Math.max(2, Math.ceil((Date.now() - end.getTime()) / 86400000) + 3));
+    const daysBack = Math.min(92, Math.max(8, Math.ceil((Date.now() - end.getTime()) / 86400000) + 8));
     const u = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&hourly=precipitation&past_days=${daysBack}&forecast_days=1&timezone=auto`;
     const d = await (await fetch(u)).json();
     const t = d.hourly?.time || [], p = d.hourly?.precipitation || [];
@@ -2420,8 +2446,16 @@ async function estimarLluviaGPS() {
     const suma = n => { let s = 0; for (let i = Math.max(0, idx - n + 1); i <= idx; i++) s += (p[i] || 0); return Math.round(s * 10) / 10; };
     document.getElementById('lluvia-24h').value = suma(24);
     document.getElementById('lluvia-48h').value = suma(48);
+    document.getElementById('lluvia-7d').value = suma(24 * 7);
     const cuando = new Date(t[idx]).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     fuente.textContent = `Estimación Open-Meteo (modelo, en el punto GPS) hasta ${cuando}. Ajusta si tienes dato de estación.`;
+    if (estacionEl) {
+      estacionEl.textContent = 'Buscando estación más cercana…';
+      const cercana = await estacionMasCercana(coords.lat, coords.lng);
+      estacionEl.textContent = cercana
+        ? `📍 Estación más cercana: ${cercana.nombre} (${cercana.distKm.toFixed(1)} km) — dato de referencia, no usado en el cálculo.`
+        : 'No se pudo determinar la estación más cercana (¿sin conexión?).';
+    }
   } catch (e) {
     console.warn('Lluvia GPS:', e);
     fuente.textContent = 'No se pudo estimar automáticamente. Ingresa los valores manualmente.';
@@ -2444,7 +2478,9 @@ function collectFormData() {
     desencadenante: document.getElementById('desencadenante')?.value,
     'lluvia-24h': document.getElementById('lluvia-24h')?.value,
     'lluvia-48h': document.getElementById('lluvia-48h')?.value,
+    'lluvia-7d': document.getElementById('lluvia-7d')?.value,
     'lluvia-fuente': document.getElementById('lluvia-fuente')?.textContent || '',
+    'lluvia-estacion': document.getElementById('lluvia-estacion')?.textContent || '',
     'tipo-movimiento': document.getElementById('tipo-movimiento')?.value,
     ...Object.fromEntries(currentMorfoFields.map(f => [f.id, getMorfoValue(f.id)])),
     granulometria: getChipsValues('granulometria-chips'),
@@ -2675,12 +2711,15 @@ async function generateRETERM(record) {
     const obsPartes = [];
     obsPartes.push(`En el sector de ${esc(localidad)}${data.region ? ', Región de ' + esc(data.region.replace(/\s*\(.*\)/, '')) : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
     if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
-    if (data['lluvia-24h'] || data['lluvia-48h']) {
+    if (data['lluvia-24h'] || data['lluvia-48h'] || data['lluvia-7d']) {
       const partes = [];
       if (data['lluvia-24h']) partes.push(`${esc(data['lluvia-24h'])} mm en 24 h`);
       if (data['lluvia-48h']) partes.push(`${esc(data['lluvia-48h'])} mm en 48 h`);
+      if (data['lluvia-7d']) partes.push(`${esc(data['lluvia-7d'])} mm en la última semana`);
       const estim = /open-meteo/i.test(data['lluvia-fuente'] || '') ? ' (estimación modelada Open-Meteo en el punto)' : '';
-      obsPartes.push(`La precipitación acumulada previa al evento fue de ${partes.join(' y ')}${estim}.`);
+      const estacionFrase = /estación más cercana: ([^(]+)\(/.exec(data['lluvia-estacion'] || '');
+      const estacionTxt = estacionFrase ? ` La estación de referencia más cercana es ${esc(estacionFrase[1].trim())}.` : '';
+      obsPartes.push(`La precipitación acumulada previa al evento fue de ${partes.join(', ')}${estim}.${estacionTxt}`);
     }
     if (morfoTexto) obsPartes.push(esc(morfoTexto) + '.');
     if (data.litologia) {
@@ -3043,6 +3082,7 @@ function resetFormForNewRM() {
   markerPlaced = false;
   document.getElementById('coords-display').textContent = 'Sin ubicación GPS aún...';
   { const lf = document.getElementById('lluvia-fuente'); if (lf) lf.textContent = 'Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.'; }
+  { const le = document.getElementById('lluvia-estacion'); if (le) le.textContent = ''; }
   toggleLluviaAcum();
   generateRMId().then(id => { document.getElementById('rm-id').value = id; });
   goToStep(1);
@@ -3079,9 +3119,10 @@ function populateForm(rec) {
   setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
   setEl('recom-libre', d['recomendaciones-libre']);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','n-reterm','hora-ingreso']
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','n-reterm','hora-ingreso']
     .forEach(id => setEl(id, d[id]));
   { const lf = document.getElementById('lluvia-fuente'); if (lf && d['lluvia-fuente']) lf.textContent = d['lluvia-fuente']; }
+  { const le = document.getElementById('lluvia-estacion'); if (le) le.textContent = d['lluvia-estacion'] || ''; }
   setEl('fecha-aprox', d['fecha-aprox']);
   setEl('hora-desconocida', d['hora-desconocida']);
   ['sismo-previo', 'fecha-aprox', 'hora-desconocida', 'desencadenante'].forEach(id => {
