@@ -516,6 +516,14 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
+    <label>Componentes especiales del depósito <button class="help-btn" data-help="componentes">?</button></label>
+    <div class="chips-group" id="componentes-chips">
+      <button type="button" class="chip" data-val="antropico">🧱 Material antrópico</button>
+      <button type="button" class="chip" data-val="vegetal">🌲 Árboles / restos vegetales</button>
+    </div>
+  </div>
+
+  <div class="field">
     <label>Plasticidad del material fino <button class="help-btn" data-help="plasticidad">?</button></label>
     <div class="toggle-group" id="plasticidad-toggle">
       <button class="toggle-btn" data-val="no">No plástico</button>
@@ -669,7 +677,7 @@ body.map-mode #nav-buttons { display: none !important; }
 
   <div class="field">
     <label>Disposición de estructuras <button class="help-btn" data-help="disposicion-estructuras">?</button></label>
-    <p style="font-size:0.75rem;color:var(--muted);margin:2px 0 6px">Dip direction / Dip — agregar las estructuras con control sobre el evento</p>
+    <p style="font-size:0.75rem;color:var(--muted);margin:2px 0 6px">Rumbo / Manteo (regla de la mano derecha) — agregar las estructuras con control sobre el evento</p>
     <div id="estructuras-dip-list"></div>
     <button type="button" id="add-estructura-dip" style="font-size:0.85rem;padding:8px 14px;background:var(--surface2);border:1px dashed var(--muted);border-radius:8px;color:var(--fg);cursor:pointer;margin-top:4px;width:100%">+ Agregar estructura</button>
   </div>
@@ -796,7 +804,7 @@ body.map-mode #nav-buttons { display: none !important; }
 
   <div id="fotos-container"></div>
   <button id="btn-add-foto" style="background:var(--mid);border:1px dashed var(--light);border-radius:8px;color:var(--muted);cursor:pointer;padding:12px;width:100%;font-size:0.9rem">
-    + Agregar foto (máx. 5)
+    + Agregar foto (máx. 8)
   </button>
 
   <div class="field" style="margin-top:8px">
@@ -927,7 +935,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v20';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v21';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1194,7 +1202,7 @@ function createEstDipEntry() {
     </select>
     <input type="number" class="est-strike" min="0" max="360" placeholder="Rumbo (°N)" title="Rumbo según regla de la mano derecha (manteo a la derecha del rumbo)" style="width:90px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
     <span style="color:var(--muted);font-size:0.85rem">/</span>
-    <input type="number" class="est-dip" min="0" max="90" placeholder="Dip (°)" style="width:68px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <input type="number" class="est-dip" min="0" max="90" placeholder="Manteo (°)" style="width:78px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
     <input type="number" class="est-trend" min="0" max="360" placeholder="Trend" title="Trend de la lineación/estría (0-360°)" style="width:74px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
     <span style="color:var(--muted);font-size:0.85rem">/</span>
     <input type="number" class="est-plunge" min="0" max="90" placeholder="Plunge" title="Plunge de la lineación/estría (0-90°)" style="width:74px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
@@ -1723,6 +1731,10 @@ const HELP_TEXTS = {
   'grado-alteracion': {
     title: 'Grado de alteración / meteorización',
     text: 'La escala ISRM (W1–W5) describe el grado de meteorización de la roca: W1 es roca fresca sin cambios visibles; W5 es roca completamente descompuesta que se comporta como suelo. La alteración hidrotermal es distinta: corresponde a cambios químicos por fluidos hidrotermales (agua caliente con minerales), que pueden producir arcillas expansivas (esmectitas) muy inestables, incluso en zonas sin meteorización superficial evidente. Ambas debilitan el macizo rocoso y favorecen los movimientos en masa.'
+  },
+  componentes: {
+    title: 'Componentes especiales del depósito',
+    text: 'Material antrópico: elementos como restos de hormigón, asfalto, basura, plásticos o incluso partes de vehículos son clave para caracterizar el depósito y su origen. Árboles y restos vegetales: incluir troncos, ramas y raíces es fundamental, ya que el material orgánico altera el volumen del depósito y puede actuar como dique, generando represamientos temporales.'
   },
   'disposicion-estructuras': {
     title: 'Disposición de estructuras geológicas',
@@ -2370,6 +2382,7 @@ function collectFormData() {
     'tipo-movimiento': document.getElementById('tipo-movimiento')?.value,
     ...Object.fromEntries(currentMorfoFields.map(f => [f.id, getMorfoValue(f.id)])),
     granulometria: getChipsValues('granulometria-chips'),
+    componentes: getChipsValues('componentes-chips'),
     plasticidad: getToggleValue('plasticidad-toggle'),
     'tamano-bloques': document.getElementById('tamano-bloques')?.value,
     'prop-bloques': document.getElementById('prop-bloques')?.value,
@@ -2607,6 +2620,13 @@ async function generateRETERM(record) {
       let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
       if (data['grado-alteracion']) litFrase += `, con ${esc(data['grado-alteracion'].toLowerCase())}`;
       obsPartes.push(litFrase + '.');
+    }
+    if (data.componentes?.length) {
+      const nombresComp = { antropico: 'material antrópico (restos de hormigón, asfalto, basura, plásticos, partes de vehículos)', vegetal: 'árboles y restos vegetales (troncos, ramas y raíces)' };
+      const items = data.componentes.map(c => nombresComp[c] || c);
+      let frase = `El depósito incorpora ${esc(items.join(' y '))}.`;
+      if (data.componentes.includes('vegetal')) frase += ' El material orgánico altera el volumen movilizado y puede actuar como dique, generando represamientos temporales.';
+      obsPartes.push(frase);
     }
     if (data.estructuras?.length) obsPartes.push(`Se observan ${esc(data.estructuras.join(', '))} en el escarpe.`);
     if ((data['estructuras-dip'] || []).length) {
@@ -2937,7 +2957,7 @@ function resetFormForNewRM() {
   setToggle('zona-toggle', 'generacion');
   clearToggle('amenaza-toggle');
   clearToggle('plasticidad-toggle');
-  ['granulometria-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips', 'recom-chips'].forEach(clearChips);
+  ['granulometria-chips', 'componentes-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips', 'recom-chips'].forEach(clearChips);
   document.getElementById('estructuras-dip-list').innerHTML = '';
   updateMorfoFields('');
   fotosData = [];
@@ -2976,6 +2996,7 @@ function populateForm(rec) {
   d.amenaza ? setToggle('amenaza-toggle', d.amenaza) : clearToggle('amenaza-toggle');
   d.plasticidad ? setToggle('plasticidad-toggle', d.plasticidad) : clearToggle('plasticidad-toggle');
   setChips('granulometria-chips', d.granulometria);
+  setChips('componentes-chips', d.componentes);
   setChips('geometria-ladera-chips', d['geometria-ladera']);
   setChips('estructuras-chips', d.estructuras);
   setChips('infra-chips', d.infraestructura);
