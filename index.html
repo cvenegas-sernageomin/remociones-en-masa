@@ -179,6 +179,26 @@ body.map-mode #nav-buttons { display: none !important; }
 }
 .toggle-btn.active { background: var(--red); border-color: var(--red); }
 
+.est-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  padding: 7px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--light);
+  background: var(--mid);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.est-chip input { display: none; }
+.est-chip.est-active { background: var(--red); border-color: var(--red); color: #fff; }
+.est-chip .est-tick { display: none; }
+.est-chip.est-active .est-tick { display: inline; }
+
 /* Map */
 #map {
   height: 280px;
@@ -601,6 +621,12 @@ body.map-mode #nav-buttons { display: none !important; }
     </select>
   </div>
 
+  <div class="field">
+    <label>Grietas de tracción <button type="button" class="help-btn" data-help="grietas-traccion">?</button></label>
+    <div id="grietas-list"></div>
+    <button type="button" id="add-grieta" style="font-size:0.85rem;padding:8px 14px;background:var(--surface2);border:1px dashed var(--muted);border-radius:8px;color:var(--fg);cursor:pointer;margin-top:4px;width:100%">+ Agregar grieta de tracción</button>
+  </div>
+
   <h3 style="font-size:0.85rem;color:var(--muted);margin-top:8px">Talud / Escarpe</h3>
 
   <div class="field">
@@ -608,13 +634,11 @@ body.map-mode #nav-buttons { display: none !important; }
     <select id="litologia">
       <option value="">— Seleccionar —</option>
       <optgroup label="Rocas">
-        <option>Granito / Granodiorita</option>
-        <option>Basalto / Andesita</option>
-        <option>Riolita / Ignimbrita</option>
-        <option>Pizarra / Esquisto</option>
-        <option>Caliza / Mármol</option>
-        <option>Arenisca / Lutita</option>
-        <option>Otro (roca)</option>
+        <option>Intrusivas</option>
+        <option>Lavas/Tobas</option>
+        <option>Sedimentarias</option>
+        <option>Metamórficas</option>
+        <option>Otros</option>
       </optgroup>
       <optgroup label="Suelos y depósitos">
         <option>Suelo residual (meteorización in situ)</option>
@@ -833,9 +857,9 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:10px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
-    💾 Guardar RM y empezar otra
+    🏁 Finalizar RM (guarda todo: Word + KMZ + respaldo)
   </button>
-  <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda esta RM en el dispositivo y limpia el formulario para describir la siguiente.</p>
+  <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda la RM en el dispositivo, descarga el informe Word, el KMZ y el respaldo JSON (con fecha, hora e iniciales en el nombre), y limpia el formulario para describir la siguiente.</p>
 </div>
 
 <!-- Modal lista de RMs guardadas -->
@@ -932,7 +956,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v24';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v25';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1122,12 +1146,19 @@ function updateMorfoFields(tipo) {
       <label>${f.label} (${f.unit}) <button type="button" class="help-btn" data-help="${f.help}" aria-label="Ayuda: ${f.label}">?</button></label>
       <div class="field-row">
         <input type="text" inputmode="decimal" id="${f.id}" placeholder="ej: 10" style="flex:1">
-        <label style="font-size:0.8rem;white-space:nowrap">
-          <input type="checkbox" id="${f.id}-est"> est.
-        </label>
+        <label class="est-chip"><input type="checkbox" id="${f.id}-est"><span class="est-tick">✓</span> est.</label>
       </div>`;
     container.appendChild(div);
+    const cb = div.querySelector(`#${f.id}-est`);
+    cb.addEventListener('change', () => cb.closest('label').classList.toggle('est-active', cb.checked));
   });
+}
+// Fija el checkbox "est." de un campo morfométrico y sincroniza el chip visual (color+tick)
+function setMorfoEst(id, checked) {
+  const cb = document.getElementById(`${id}-est`);
+  if (!cb) return;
+  cb.checked = !!checked;
+  cb.closest('label')?.classList.toggle('est-active', !!checked);
 }
 
 document.getElementById('tipo-movimiento').addEventListener('change', e => {
@@ -1301,6 +1332,41 @@ function getEstDipValues() {
       plunge: div.querySelector('.est-plunge')?.value || ''
     }))
     .filter(e => e.tipo || e.strike || e.dip || e.trend || e.plunge);
+}
+
+// ---- Grietas de tracción (zona de generación) ----
+function createGrietaEntry(n) {
+  const div = document.createElement('div');
+  div.className = 'grieta-entry';
+  div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
+  div.innerHTML = `
+    <span class="grieta-num" style="font-size:0.85rem;font-weight:600;min-width:18px">${n}</span>
+    <input type="text" inputmode="decimal" class="grieta-largo" placeholder="Largo (m)" style="width:84px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <input type="text" inputmode="decimal" class="grieta-apertura" placeholder="Apertura (cm)" style="width:98px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <input type="text" inputmode="decimal" class="grieta-salto" placeholder="Salto (cm)" style="width:84px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <input type="text" inputmode="decimal" class="grieta-dist-escarpe" placeholder="Dist. al escarpe (m)" style="width:128px;padding:9px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);font-size:0.9rem">
+    <button type="button" class="btn-remove-grieta" style="padding:9px 11px;border-radius:8px;border:none;background:#fee2e2;color:#e63946;cursor:pointer;font-size:0.9rem;min-width:44px">✕</button>`;
+  div.querySelector('.btn-remove-grieta').addEventListener('click', () => { div.remove(); renumberGrietas(); });
+  return div;
+}
+function renumberGrietas() {
+  document.querySelectorAll('#grietas-list .grieta-entry').forEach((div, i) => {
+    div.querySelector('.grieta-num').textContent = i + 1;
+  });
+}
+document.getElementById('add-grieta').addEventListener('click', () => {
+  const list = document.getElementById('grietas-list');
+  list.appendChild(createGrietaEntry(list.children.length + 1));
+});
+function getGrietasValues() {
+  return Array.from(document.querySelectorAll('#grietas-list .grieta-entry'))
+    .map(div => ({
+      largo: div.querySelector('.grieta-largo').value.trim().replace(',', '.'),
+      apertura: div.querySelector('.grieta-apertura').value.trim().replace(',', '.'),
+      salto: div.querySelector('.grieta-salto').value.trim().replace(',', '.'),
+      distEscarpe: div.querySelector('.grieta-dist-escarpe').value.trim().replace(',', '.')
+    }))
+    .filter(g => g.largo || g.apertura || g.salto || g.distEscarpe);
 }
 
 // =====================
@@ -1719,6 +1785,10 @@ const HELP_TEXTS = {
     title: 'Litología dominante',
     text: 'Tipo de roca o suelo que domina en el talud donde se originó el movimiento. Observar el escarpe y el material movilizado. Si es solo suelo (sin afloramiento rocoso visible), seleccionar en el grupo "Suelos y depósitos".'
   },
+  'grietas-traccion': {
+    title: 'Grietas de tracción',
+    text: 'Fracturas abiertas en la superficie del terreno, sobre o cerca de la corona/escarpe, que indican que el talud se está desplazando o podría hacerlo (movimiento incipiente o activo). Para cada grieta registra: Largo (extensión visible, en metros), Apertura (ancho de la fisura, en cm), Salto (desnivel vertical entre ambos lados, en cm, indica componente de hundimiento) y Distancia al escarpe (qué tan lejos está de la corona/escarpe principal, en metros — grietas más cercanas suelen indicar mayor actividad). Agrega una entrada por cada grieta relevante.'
+  },
   'suelo-adicional': {
     title: '¿Hay suelo además de roca?',
     text: 'Indica si sobre la roca existe una cubierta de suelo y su espesor estimado. Es relevante porque el plano de falla suele ocurrir en la interfaz roca/suelo. Delgado: menos de 0,5 m. Moderado: 0,5 a 2 m. Profundo: más de 2 m. Si la litología dominante ya es suelo, seleccionar "No / Solo roca" no aplica — dejar en blanco.'
@@ -1985,6 +2055,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Tipo de ladera', data['tipo-ladera'])}
   ${row('Geometría ladera', data['geometria-ladera']?.join(', '))}
   ${row('Estado del escarpe', data['estado-escarpe'])}
+  ${(data['grietas-traccion'] || []).map((g, i) => row(`Grieta de tracción ${i + 1}`, `Largo ${g.largo || '?'} m · Apertura ${g.apertura || '?'} cm · Salto ${g.salto || '?'} cm · Dist. escarpe ${g.distEscarpe || '?'} m`)).join('')}
   ${row('Litología dominante', data.litologia)}
   ${row('Suelo sobre roca', data['suelo-adicional'])}
   ${row('Alteración / meteorización', data['grado-alteracion'])}
@@ -2392,6 +2463,7 @@ function collectFormData() {
     orientacion: document.getElementById('orientacion')?.value,
     estructuras: getChipsValues('estructuras-chips'),
     'estructuras-dip': getEstDipValues(),
+    'grietas-traccion': getGrietasValues(),
     vegetacion: document.getElementById('vegetacion')?.value,
     'lluvia-previa': document.getElementById('lluvia-previa')?.value,
     'sismo-previo': document.getElementById('sismo-previo')?.value,
@@ -2627,6 +2699,10 @@ async function generateRETERM(record) {
     if ((data['estructuras-dip'] || []).length) {
       const dipStr = data['estructuras-dip'].map(e => `${e.tipo || 'estructura'} rumbo ${e.strike || '?'}°N/dip ${e.dip || '?'}° (RHR)`).join('; ');
       obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
+    }
+    if ((data['grietas-traccion'] || []).length) {
+      const gStr = data['grietas-traccion'].map((g, i) => `grieta ${i + 1}: largo ${g.largo || '?'} m, apertura ${g.apertura || '?'} cm, salto ${g.salto || '?'} cm, a ${g.distEscarpe || '?'} m del escarpe`).join('; ');
+      obsPartes.push(`Se identifican grietas de tracción en la zona de generación (${esc(gStr)}), lo que indica un proceso de inestabilidad activo o incipiente.`);
     }
     if (data.efectos) obsPartes.push(esc(data.efectos));
     if (data.otros) obsPartes.push(esc(data.otros));
@@ -2928,16 +3004,21 @@ async function buildRMRecord() {
   };
 }
 
+// Guarda la RM en el dispositivo y descarga de una vez Word (RETERM) + KMZ + respaldo JSON.
 async function saveCurrentRM() {
   if (!getCoords()) { alert('Marca la ubicación en el mapa antes de guardar la RM.'); return; }
   try {
     const rec = await buildRMRecord();
     await rmAdd(rec);
     await refreshRMsCount();
+    await generateKMZ(rec);
+    await generateRETERM(rec);
+    const backupBlob = await buildBackupBlob();
+    downloadBlob(backupBlob, backupFilename());
     resetFormForNewRM();
-    alert(`RM "${rec.id}" guardada (${savedRMsCache.length} en total). Formulario listo para la siguiente.`);
+    alert(`RM "${rec.id}" guardada (${savedRMsCache.length} en total). Se descargaron Word, KMZ y respaldo JSON. Formulario listo para la siguiente.`);
   } catch (e) {
-    alert('No se pudo guardar la RM: ' + e.message);
+    alert('No se pudo finalizar la RM: ' + e.message);
     console.error(e);
   }
 }
@@ -2954,6 +3035,7 @@ function resetFormForNewRM() {
   clearToggle('plasticidad-toggle');
   ['granulometria-chips', 'componentes-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips', 'recom-chips'].forEach(clearChips);
   document.getElementById('estructuras-dip-list').innerHTML = '';
+  document.getElementById('grietas-list').innerHTML = '';
   updateMorfoFields('');
   fotosData = [];
   document.getElementById('fotos-container').innerHTML = '';
@@ -2983,8 +3065,7 @@ function populateForm(rec) {
     const v = d[f.id];
     if (v && typeof v === 'object') {
       setEl(f.id, v.valor);
-      const est = document.getElementById(`${f.id}-est`);
-      if (est) est.checked = !!v.estimado;
+      setMorfoEst(f.id, v.estimado);
     }
   });
   setToggle('zona-toggle', d.zona || 'generacion');
@@ -3017,6 +3098,16 @@ function populateForm(rec) {
     entry.querySelector('.est-dip').value = e.dip || '';
     entry.querySelector('.est-trend').value = e.trend || '';
     entry.querySelector('.est-plunge').value = e.plunge || '';
+  });
+  const glist = document.getElementById('grietas-list');
+  glist.innerHTML = '';
+  (d['grietas-traccion'] || []).forEach((g, i) => {
+    const entry = createGrietaEntry(i + 1);
+    glist.appendChild(entry);
+    entry.querySelector('.grieta-largo').value = g.largo || '';
+    entry.querySelector('.grieta-apertura').value = g.apertura || '';
+    entry.querySelector('.grieta-salto').value = g.salto || '';
+    entry.querySelector('.grieta-dist-escarpe').value = g.distEscarpe || '';
   });
   fotosData = [];
   document.getElementById('fotos-container').innerHTML = '';
@@ -3644,8 +3735,15 @@ async function buildBackupBlob() {
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
 }
 
+// Nombre del respaldo con fecha, hora e iniciales del profesional (trazabilidad de quién/cuándo).
+function backupFilename() {
+  const hora = new Date().toTimeString().slice(0, 5).replace(':', '');
+  const ini = getIniciales() || 'SIN-INI';
+  return `respaldo_remociones_${todayStr()}_${hora}_${ini}.json`;
+}
+
 async function exportBackup() {
-  const filename = `respaldo_remociones_${todayStr()}.json`;
+  const filename = backupFilename();
   // 1) En PC: pedir DÓNDE guardar ahora (con el gesto del click, antes del trabajo async)
   const handle = await pickSaveHandle(filename, 'application/json', '.json');
   if (handle === 'cancel') return;
