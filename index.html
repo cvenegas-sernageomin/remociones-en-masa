@@ -863,7 +863,18 @@ body.map-mode #nav-buttons { display: none !important; }
   <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:16px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
     🏁 Finalizar RM (guarda todo: Word + KMZ + respaldo)
   </button>
-  <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda la RM en el dispositivo, descarga el informe Word, el KMZ y el respaldo JSON (con fecha, hora e iniciales en el nombre), y limpia el formulario para describir la siguiente.</p>
+  <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda la RM en el dispositivo, genera el informe Word, el KMZ y el respaldo JSON, y te ofrece compartirlos por correo (un solo envío) o descargarlos. Luego limpia el formulario para la siguiente.</p>
+</div>
+
+<!-- Modal de entrega de archivos (tras Finalizar RM): compartir los 3 juntos o descargar -->
+<div id="entrega-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2600;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg,#fff);color:var(--fg);max-width:420px;width:100%;border-radius:14px;padding:18px;border:1px solid var(--border)">
+    <h3 id="entrega-titulo" style="margin:0 0 6px 0;font-size:1.05rem">📄 Archivos de la RM</h3>
+    <p id="entrega-msg" style="font-size:0.85rem;color:var(--muted);margin:0 0 14px 0"></p>
+    <button type="button" id="entrega-compartir" style="width:100%;padding:13px;margin-bottom:8px;background:#16a34a;border:none;border-radius:10px;color:#fff;font-size:0.95rem;font-weight:600;cursor:pointer">📤 Compartir</button>
+    <button type="button" id="entrega-descargar" style="width:100%;padding:12px;margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--fg);font-size:0.9rem;cursor:pointer">⬇️ Descargar los archivos</button>
+    <button type="button" id="entrega-cerrar" style="width:100%;padding:8px;background:none;border:none;color:var(--muted);font-size:0.82rem;cursor:pointer">Cerrar</button>
+  </div>
 </div>
 
 <!-- Modal lista de RMs guardadas -->
@@ -961,7 +972,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v36';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v37';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2239,7 +2250,9 @@ async function generateIconPng(zona) {
 // GENERAR KMZ
 // =====================
 // Si `record` se entrega, genera el KMZ de una RM guardada; si no, de la RM activa en el formulario.
-async function generateKMZ(record) {
+// Si `ret` es true, devuelve {blob, filename, mime} sin entregar (para agrupar la entrega
+// en un solo navigator.share posterior). Si no, entrega el archivo directamente (uso individual).
+async function generateKMZ(record, ret) {
   const loading = document.getElementById('loading');
   const loadingMsg = document.getElementById('loading-msg');
   loading.classList.add('open');
@@ -2301,7 +2314,9 @@ async function generateKMZ(record) {
     const filename = `${idTag || tipo}_${fecha}_${horaTag}.kmz`;
 
     const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-    await shareOrDownload(content, filename, 'application/vnd.google-earth.kmz');
+    const mime = 'application/vnd.google-earth.kmz';
+    if (ret) return { blob: content, filename, mime };
+    await shareOrDownload(content, filename, mime);
 
   } catch (err) {
     alert('Error al generar KMZ: ' + err.message);
@@ -2462,7 +2477,7 @@ document.getElementById('btn-lluvia-gps')?.addEventListener('click', estimarLluv
 // color del PEOR de las 4 ventanas (+0–6/+6–12/+12–24/+24–48 h). Umbrales del visor de alertas:
 //   verde: precip<5 mm O isoterma<2500 m · amarillo: precip≥5 y iso≥2500 · rojo: precip≥20 y iso≥3000.
 // (Modelo por defecto de Open-Meteo; el visor usa multimodelo. Se recomputa al mover el mapa.)
-const PRONO_PASO = 0.5;             // espaciado de la grilla en grados (0.25 = más densa)
+const PRONO_PASO = 0.25;            // espaciado de la grilla en grados (0.5 = menos densa)
 const PRONO_MAX_PTS = 96;           // Open-Meteo admite ~100 coordenadas por llamada
 const PRONO_VENTANAS = [[0, 6], [6, 12], [12, 24], [24, 48]];
 const PRONO_COL = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d' };
@@ -2759,7 +2774,7 @@ function docxHeaderXml() {
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="' + A_NS + '" xmlns:pic="' + PIC_NS + '">' + wP(wImg('rId1', cx, cy, 1, 'logo'), { after: 0 }) + '</w:hdr>';
 }
 
-async function generateRETERM(record) {
+async function generateRETERM(record, ret) {
   const data = record ? record.data : collectFormData();
   const fotos = record ? (record.fotos || []) : fotosData;
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -2996,7 +3011,9 @@ async function generateRETERM(record) {
     const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     const idTag = (data.id || tipo).replace(/[^A-Za-z0-9_-]/g, '_');
     const filename = `RETERM_${regionCorta.replace(/\s+/g, '_')}_${nReterm}_${idTag}.docx`;
-    await shareOrDownload(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (ret) return { blob, filename, mime };
+    await shareOrDownload(blob, filename, mime);
   } catch (err) {
     alert('Error al generar el informe RETERM: ' + err.message);
     console.error(err);
@@ -3156,22 +3173,58 @@ async function buildRMRecord() {
 }
 
 // Guarda la RM en el dispositivo y descarga de una vez Word (RETERM) + KMZ + respaldo JSON.
+// Archivos generados pendientes de entregar (compartir/descargar). La entrega se hace con un
+// TOQUE FRESCO del usuario en el modal: navigator.share exige activación de usuario vigente, que
+// se pierde tras el trabajo async de generar (captura satelital, logo, fotos). Compartir los 3
+// juntos en UNA sola hoja = un correo con los 3 adjuntos, y funciona en PWA instalada en iOS.
+let _archivosRM = [];
 async function saveCurrentRM() {
   if (!getCoords()) { alert('Marca la ubicación en el mapa antes de guardar la RM.'); return; }
   try {
     const rec = await buildRMRecord();
     await rmAdd(rec);
     await refreshRMsCount();
-    await generateKMZ(rec);
-    await generateRETERM(rec);
-    const backupBlob = await buildBackupBlob();
-    await shareOrDownload(backupBlob, backupFilename(), 'application/json');
+    const word = await generateRETERM(rec, true);
+    const kmz = await generateKMZ(rec, true);
+    const json = { blob: await buildBackupBlob(), filename: backupFilename(), mime: 'application/json' };
+    _archivosRM = [word, kmz, json].filter(Boolean);
     resetFormForNewRM();
-    alert(`RM "${rec.id}" guardada (${savedRMsCache.length} en total). Se descargaron Word, KMZ y respaldo JSON. Formulario listo para la siguiente.`);
+    abrirEntregaModal(rec.id);
   } catch (e) {
     alert('No se pudo finalizar la RM: ' + e.message);
     console.error(e);
   }
+}
+function abrirEntregaModal(id) {
+  const m = document.getElementById('entrega-modal');
+  if (!m) return;
+  const n = _archivosRM.length;
+  const files = _archivosRM.map(a => new File([a.blob], a.filename, { type: a.mime }));
+  const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files }));
+  const cual = n > 1 ? `los ${n} archivos (Word, KMZ y respaldo)` : 'el archivo';
+  document.getElementById('entrega-msg').textContent =
+    `${id ? `RM "${id}". ` : ''}${puedeCompartir ? `Comparte ${cual} por correo (un solo envío) o descárgalo${n > 1 ? 's' : ''}.` : `Descarga ${cual}.`}`;
+  document.getElementById('entrega-compartir').textContent = n > 1 ? '📤 Compartir (Word + KMZ + JSON)' : '📤 Compartir';
+  document.getElementById('entrega-descargar').textContent = n > 1 ? '⬇️ Descargar los archivos' : '⬇️ Descargar';
+  document.getElementById('entrega-compartir').style.display = puedeCompartir ? '' : 'none';
+  m.style.display = 'flex';
+}
+async function entregaCompartir() {
+  const files = _archivosRM.map(a => new File([a.blob], a.filename, { type: a.mime }));
+  try {
+    if (navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({ files, title: 'Remoción en masa' });
+      document.getElementById('entrega-modal').style.display = 'none';
+    } else {
+      entregaDescargar();
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') { console.warn('Compartir:', e); alert('No se pudo compartir. Usa «Descargar».'); }
+  }
+}
+function entregaDescargar() {
+  _archivosRM.forEach(a => downloadBlob(a.blob, a.filename));
+  document.getElementById('entrega-modal').style.display = 'none';
 }
 
 function resetFormForNewRM() {
@@ -3306,8 +3359,8 @@ async function renderRMsList() {
 async function handleRMAction(act, key) {
   const rec = savedRMsCache.find(r => r.key === key);
   if (!rec) return;
-  if (act === 'kmz') { closeRMsModal(); return generateKMZ(rec); }
-  if (act === 'pdf') { closeRMsModal(); return generateRETERM(rec); }
+  if (act === 'kmz') { closeRMsModal(); const f = await generateKMZ(rec, true); if (f) { _archivosRM = [f]; abrirEntregaModal(rec.id); } return; }
+  if (act === 'pdf') { closeRMsModal(); const f = await generateRETERM(rec, true); if (f) { _archivosRM = [f]; abrirEntregaModal(rec.id); } return; }
   if (act === 'abrir') { closeRMsModal(); return populateForm(rec); }
   if (act === 'del' && confirm(`¿Eliminar la RM "${rec.id}"?`)) {
     await rmDelete(key);
@@ -3970,6 +4023,9 @@ document.getElementById('input-backup').addEventListener('change', e => { if (e.
 document.getElementById('rms-close').addEventListener('click', closeRMsModal);
 document.getElementById('rms-modal').addEventListener('click', e => { if (e.target.id === 'rms-modal') closeRMsModal(); });
 document.getElementById('btn-guardar-rm').addEventListener('click', saveCurrentRM);
+document.getElementById('entrega-compartir').addEventListener('click', entregaCompartir);
+document.getElementById('entrega-descargar').addEventListener('click', entregaDescargar);
+document.getElementById('entrega-cerrar').addEventListener('click', () => { document.getElementById('entrega-modal').style.display = 'none'; });
 document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
 
 // Tab bar Ficha ⇄ Mapa + botones de la vista de mapa
