@@ -972,7 +972,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v37';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v38';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2874,14 +2874,92 @@ async function generateRETERM(record, ret) {
     if (data.otros) obsPartes.push(esc(data.otros));
     const observaciones = obsPartes.map((p, i) => `<p style="margin:0 0 6px 0;text-align:justify">${i + 1}. ${p}</p>`).join('');
 
-    // Conclusión auto
+    // Conclusión auto — síntesis razonada a partir de todo lo compilado. Cada oración se agrega
+    // SOLO si el dato fue registrado (no inventa). Encadena: mecanismo/material → magnitud →
+    // condicionantes y desencadenante → estado y nivel de peligro con elementos expuestos → proyección.
     const infra = data.infraestructura?.length ? data.infraestructura.join(', ') : null;
     const personas = data['personas-afectadas'];
-    const concluFrase = data.amenaza === 'si'
-      ? `La remoción en masa se encuentra <b>activa</b> y podría afectar${infra ? ' a ' + esc(infra) : ''}${personas ? ' con ' + esc(personas) + ' personas afectadas' : ''} ante futuras reactivaciones, especialmente frente a nuevos eventos de lluvia o sismos.`
-      : data.amenaza === 'incierta'
-        ? `La remoción en masa se encuentra <b>en evaluación</b>; no se descarta que el proceso pueda reactivarse mientras persistan las condiciones de inestabilidad.`
-        : `La remoción en masa se encuentra <b>inactiva</b> al momento de la visita, sin perjuicio de mantener el monitoreo del sector.`;
+    const nPers = data['num-personas'];
+    const distViv = data['dist-vivienda'];
+    const estadoTxt = data.amenaza === 'si' ? 'activo'
+      : data.amenaza === 'incierta' ? 'en evaluación'
+        : data.amenaza === 'no' ? 'inactivo' : 'no evaluado';
+    const mp = id => morfoVals[id]?.valor;
+    const concluParts = [];
+
+    // 1) Mecanismo, ubicación y material
+    {
+      const lugar = [localidad && localidad !== '___' ? esc(localidad) : null, data.region ? 'Región de ' + esc(region.replace(/\s*\(.*\)/, '')) : null].filter(Boolean).join(', ');
+      let f = `El evento corresponde a una remoción en masa de tipo ${esc(tipo)}${lugar ? ', registrada en ' + lugar : ''}`;
+      if (data['tipo-ladera']) f += `, desarrollada sobre una ladera ${esc(data['tipo-ladera'].toLowerCase())}`;
+      if (data['geometria-ladera']?.length) f += ` de geometría ${esc(data['geometria-ladera'].join('/').toLowerCase())}`;
+      concluParts.push(f + '.');
+      const mat = [];
+      if (data.litologia) mat.push(esc(data.litologia.toLowerCase()));
+      if (data['grado-alteracion']) mat.push(`con ${esc(data['grado-alteracion'])}`);
+      if (data.granulometria?.length) mat.push(`de granulometría dominante ${esc(data.granulometria.join(', ').toLowerCase())}`);
+      if (data.humedad) mat.push(`en estado ${esc(data.humedad.toLowerCase())}`);
+      if (mat.length) concluParts.push(`El material movilizado corresponde a ${mat.join(', ')}.`);
+    }
+
+    // 2) Magnitud (morfometría)
+    {
+      const mag = [];
+      if (areaNum) mag.push(`un área aproximada de ${areaNum} m²`);
+      if (volNum) mag.push(`un volumen estimado de ~${volNum} m³`);
+      if (mp('espesor-deposito')) mag.push(`un espesor de depósito de ${esc(mp('espesor-deposito'))} m`);
+      if (mp('pendiente-generacion')) mag.push(`una pendiente en la zona de generación de ${esc(mp('pendiente-generacion'))}°`);
+      if (mag.length) concluParts.push(`Morfométricamente, el evento presenta ${mag.join(', ')}.`);
+    }
+
+    // 3) Condicionantes y desencadenante
+    {
+      const cond = [];
+      if (data['grado-alteracion']) cond.push('el grado de alteración/meteorización del material');
+      if (data.estructuras?.length && !data.estructuras.includes('Sin estructuras visibles')) cond.push(`la presencia de estructuras (${esc(data.estructuras.join(', ').toLowerCase())})`);
+      if (mp('pendiente-generacion')) cond.push('la pendiente de la ladera');
+      if (data.humedad === 'Saturado' || data.humedad === 'Fluidizado') cond.push('la saturación del material');
+      if (cond.length) concluParts.push(`Entre los factores condicionantes se reconocen ${cond.join(', ')}.`);
+
+      let des = data.desencadenante ? `El desencadenante corresponde a ${esc(data.desencadenante.toLowerCase())}` : '';
+      const lluvia = [];
+      if (data['lluvia-24h']) lluvia.push(`${esc(data['lluvia-24h'])} mm en 24 h`);
+      if (data['lluvia-48h']) lluvia.push(`${esc(data['lluvia-48h'])} mm en 48 h`);
+      if (data['lluvia-7d']) lluvia.push(`${esc(data['lluvia-7d'])} mm en 7 días`);
+      if (des && lluvia.length) des += `, con precipitación acumulada previa de ${lluvia.join(', ')}`;
+      else if (!des && lluvia.length) des = `Se registró una precipitación acumulada previa de ${lluvia.join(', ')}`;
+      if (data['sismo-previo'] === 'Sí' && data['sismo-magnitud']) des += `${des ? '; ' : 'Se reporta '}un sismo previo de magnitud ${esc(data['sismo-magnitud'])}`;
+      if (des) concluParts.push(des + '.');
+
+      if ((data['grietas-traccion'] || []).length) concluParts.push('La presencia de grietas de tracción en la corona evidencia un proceso de inestabilidad activo o incipiente.');
+    }
+
+    // 4) Estado, nivel de peligro y elementos expuestos
+    {
+      const expuesto = (personas && personas !== 'Sin afectados') || infra || (distViv && parseFloat(distViv) <= 100);
+      const peligro = data.amenaza === 'si' ? (expuesto ? 'un peligro alto' : 'un peligro moderado a alto')
+        : data.amenaza === 'incierta' ? 'un nivel de peligro por precisar'
+          : data.amenaza === 'no' ? 'un peligro bajo' : null;
+      let f = `Al momento de la inspección el proceso se encuentra ${estadoTxt}`;
+      if (peligro) f += `, configurando ${peligro} para el sector`;
+      concluParts.push(f + '.');
+
+      const exp = [];
+      if (distViv) exp.push(`la vivienda más cercana se ubica a ${esc(distViv)} m del depósito`);
+      if (infra) exp.push(`la infraestructura expuesta incluye ${esc(infra.toLowerCase())}`);
+      if (personas && personas !== 'Sin afectados') exp.push(`se reportan ${esc(personas.toLowerCase())}${nPers ? ` (${esc(nPers)} personas)` : ''}`);
+      if (exp.length) concluParts.push(`En cuanto a elementos expuestos, ${exp.join('; ')}.`);
+    }
+
+    // 5) Proyección
+    {
+      const gatillo = /lluvia/i.test(data.desencadenante || '') ? 'nuevos episodios de precipitación'
+        : /sismo/i.test(data.desencadenante || '') ? 'nueva actividad sísmica'
+          : 'nuevos episodios de lluvia o sismos';
+      if (data.amenaza === 'si') concluParts.push(`Se estima probable la reactivación o la generación de nuevos eventos ante ${gatillo}, por lo que se requiere mantener vigilancia y aplicar las medidas indicadas.`);
+      else if (data.amenaza === 'incierta') concluParts.push(`No se descarta la reactivación del proceso mientras persistan las condiciones de inestabilidad, especialmente ante ${gatillo}.`);
+      else if (data.amenaza === 'no') concluParts.push(`Si bien el proceso no evidencia actividad, se recomienda mantener el monitoreo del sector ante ${gatillo}.`);
+    }
 
     // Recomendaciones: checklist + texto libre; si vacío, sugerencias generales por defecto
     let recomList = [...(data['recomendaciones-check'] || [])];
@@ -2957,7 +3035,7 @@ async function generateRETERM(record, ret) {
     const obsXml = obsPartes.map((p, i) => wP(wR((i + 1) + '. ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
     const nFotosOk = fotos.filter(f => f.blob).length;
     const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
-    const concluXml = wP(wR('• ' + htmlToPlain(concluFrase)), { align: 'both', after: 80 })
+    const concluXml = concluParts.map(p => wP(wR('• ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('')
       + wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
       + recomList.map(r => wP(wR('• ' + htmlToPlain(r)), { align: 'both', after: 60 })).join('');
 
