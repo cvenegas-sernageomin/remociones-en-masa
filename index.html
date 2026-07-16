@@ -238,6 +238,7 @@ body.map-mode #nav-buttons { display: none !important; }
   flex: 1;
 }
 .map-btn:hover { border-color: var(--red); }
+.map-btn.active { background: var(--red); border-color: var(--red); color: #fff; }
 
 /* Amenaza activa — destacado */
 .amenaza-field {
@@ -894,7 +895,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="mapa-tiles">⬇️ Tiles</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
-    <button class="map-btn" id="mapa-pronostico" title="Pronóstico de lluvia próximas 0–48 h + isoterma 0° en el centro del mapa (Open-Meteo)">🌦️ Pronóstico</button>
+    <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
   </div>
@@ -960,7 +961,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v35';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v36';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2455,55 +2456,124 @@ async function estimarLluviaGPS() {
 document.getElementById('desencadenante')?.addEventListener('change', toggleLluviaAcum);
 document.getElementById('btn-lluvia-gps')?.addEventListener('click', estimarLluviaGPS);
 
-// Pronóstico de precipitación próximas 0–48 h (Open-Meteo, misma fuente que el visor de alertas).
-// Suma la lluvia por ventanas +0–6 / +6–12 / +12–24 / +24–48 h y toma la isoterma 0°
-// (freezing_level_height) mínima de cada ventana. Semáforo igual al del visor de alertas:
-// verde <5 mm o sin isoterma · rojo ≥20 mm y isoterma ≥3000 m · amarillo intermedio.
-// (Modelo por defecto de Open-Meteo, no el multimodelo del visor, por simplicidad en terreno.)
-// Se consulta desde el Tab de Mapa (botón "🌦️ Pronóstico"), no desde la ficha.
+// ---- Pronóstico en GRILLA (Open-Meteo, mismos umbrales que el visor de alertas) ----
+// Capa toggle del Tab de Mapa: genera una grilla de puntos cada PRONO_PASO grados sobre la vista
+// actual, consulta Open-Meteo en UNA sola llamada multipunto y pinta un círculo por punto con el
+// color del PEOR de las 4 ventanas (+0–6/+6–12/+12–24/+24–48 h). Umbrales del visor de alertas:
+//   verde: precip<5 mm O isoterma<2500 m · amarillo: precip≥5 y iso≥2500 · rojo: precip≥20 y iso≥3000.
+// (Modelo por defecto de Open-Meteo; el visor usa multimodelo. Se recomputa al mover el mapa.)
+const PRONO_PASO = 0.5;             // espaciado de la grilla en grados (0.25 = más densa)
+const PRONO_MAX_PTS = 96;           // Open-Meteo admite ~100 coordenadas por llamada
 const PRONO_VENTANAS = [[0, 6], [6, 12], [12, 24], [24, 48]];
-function pronosticoSemaforo(mm, iso) {
-  if (mm < 5 || iso == null) return { c: '#22c55e', t: 'Bajo' };
-  if (mm >= 20 && iso >= 3000) return { c: '#ff2d2d', t: 'Alto' };
-  return { c: '#ffcc00', t: 'Moderado' };
+const PRONO_COL = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d' };
+let pronoLayer = null, pronoCanvas = null, pronoOn = false, pronoCargando = false, pronoMoveTimer = null;
+
+function pronoColorVentana(mm, iso) {
+  if (mm >= 20 && iso != null && iso >= 3000) return 'rojo';
+  if (mm >= 5 && iso != null && iso >= 2500) return 'amarillo';
+  return 'verde';
 }
-async function computeForecast(lat, lon) {
-  const u = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=precipitation,freezing_level_height&forecast_days=2&timezone=auto`;
-  const d = await (await fetch(u)).json();
-  const t = d.hourly?.time || [], p = d.hourly?.precipitation || [], fz = d.hourly?.freezing_level_height || [];
-  if (!t.length) throw new Error('sin datos');
+function pronoPeor(cols) {
+  return cols.includes('rojo') ? 'rojo' : cols.includes('amarillo') ? 'amarillo' : 'verde';
+}
+function pronoVentanasDe(hourly) {
+  const t = hourly?.time || [], p = hourly?.precipitation || [], fz = hourly?.freezing_level_height || [];
   const ahora = Date.now();
-  let i0 = 0;                                                  // primera hora >= ahora (inicio del pronóstico)
-  for (let i = 0; i < t.length; i++) { if (new Date(t[i]).getTime() >= ahora - 3600000) { i0 = i; break; } }
-  const ventanas = PRONO_VENTANAS.map(([h0, h1]) => {
+  let i0 = 0; for (let i = 0; i < t.length; i++) { if (new Date(t[i]).getTime() >= ahora - 3600000) { i0 = i; break; } }
+  return PRONO_VENTANAS.map(([h0, h1]) => {
     let mm = 0, iso = null;
     for (let i = i0 + h0; i < i0 + h1 && i < t.length; i++) {
       mm += (p[i] || 0);
       if (fz[i] != null) iso = (iso == null) ? fz[i] : Math.min(iso, fz[i]);
     }
-    return { h0, h1, mm: Math.round(mm * 10) / 10, iso };
+    mm = Math.round(mm * 10) / 10;
+    return { h0, h1, mm, iso, col: pronoColorVentana(mm, iso) };
   });
-  const tot48 = Math.round(ventanas.reduce((a, v) => a + v.mm, 0) * 10) / 10;
-  const isoMin = ventanas.reduce((a, v) => v.iso != null ? (a == null ? v.iso : Math.min(a, v.iso)) : a, null);
-  const resumen = `Total próximas 48 h: ${tot48} mm${isoMin != null ? ` · isoterma 0° mínima ${Math.round(isoMin)} m` : ''}.`;
-  return { ventanas, tot48, isoMin, resumen };
 }
-function pronosticoHtml(pr) {
-  const filas = pr.ventanas.map(v => {
-    const s = pronosticoSemaforo(v.mm, v.iso);
+function pronoPopupHtml(lat, lon, vs) {
+  const filas = vs.map(v => {
     const iso = v.iso != null ? Math.round(v.iso) + ' m' : '—';
-    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #ddd">
-      <span style="width:10px;height:10px;border-radius:50%;background:${s.c};flex:0 0 auto"></span>
-      <span style="flex:1">+${v.h0}–${v.h1} h</span>
-      <span style="flex:0 0 auto;font-weight:600">${v.mm} mm</span>
-      <span style="flex:0 0 auto;color:#666;font-size:0.85em">iso ${iso}</span>
-    </div>`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid #ddd">
+      <span style="width:9px;height:9px;border-radius:50%;background:${PRONO_COL[v.col]};flex:0 0 auto"></span>
+      <span style="flex:1">+${v.h0}–${v.h1} h</span><span style="font-weight:600">${v.mm} mm</span>
+      <span style="color:#666;font-size:0.85em">iso ${iso}</span></div>`;
   }).join('');
-  return `<div style="min-width:210px">
-    <div style="font-weight:600;margin-bottom:4px">🌦️ Pronóstico de lluvia · isoterma 0°</div>
+  return `<div style="min-width:200px"><b>🌦️ Pronóstico 48 h</b>
+    <div style="font-size:0.78em;color:#666;margin-bottom:3px">${lat.toFixed(2)}, ${lon.toFixed(2)}</div>
     ${filas}
-    <div style="font-size:0.8em;color:#666;margin-top:5px">${pr.resumen}<br>Fuente: Open-Meteo (modelo, en este punto).</div>
-  </div>`;
+    <div style="font-size:0.72em;color:#666;margin-top:5px">Verde &lt;5 mm o iso&lt;2500 · amarillo ≥5 y iso≥2500 · rojo ≥20 y iso≥3000. Open-Meteo (modelo).</div></div>`;
+}
+function pronoGridPuntos() {
+  const b = mapaFull.getBounds(), paso = PRONO_PASO;
+  const latMin = Math.floor(b.getSouth() / paso) * paso, latMax = Math.ceil(b.getNorth() / paso) * paso;
+  const lonMin = Math.floor(b.getWest() / paso) * paso, lonMax = Math.ceil(b.getEast() / paso) * paso;
+  const pts = [];
+  for (let la = latMin; la <= latMax + 1e-9; la += paso)
+    for (let lo = lonMin; lo <= lonMax + 1e-9; lo += paso)
+      pts.push([Math.round(la * 100) / 100, Math.round(lo * 100) / 100]);
+  return pts;
+}
+async function renderPronostico() {
+  if (!mapaFull || pronoCargando) return;
+  const pts = pronoGridPuntos();
+  if (!pts.length) return;
+  if (pts.length > PRONO_MAX_PTS) {
+    pronoLayer.clearLayers();
+    toastMapa(`Acércate para ver la grilla de ${PRONO_PASO}° (${pts.length} puntos; máx. ${PRONO_MAX_PTS}).`);
+    return;
+  }
+  pronoCargando = true;
+  toastMapa(`Consultando pronóstico (${pts.length} puntos)…`, 0);
+  try {
+    const lats = pts.map(p => p[0]).join(','), lons = pts.map(p => p[1]).join(',');
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=precipitation,freezing_level_height&forecast_days=2&timezone=auto`;
+    const d = await (await fetch(u)).json();
+    const arr = Array.isArray(d) ? d : [d];
+    pronoLayer.clearLayers();
+    let conAlerta = 0;
+    arr.forEach((loc, k) => {
+      if (!pts[k] || !loc || !loc.hourly) return;
+      const lat = pts[k][0], lon = pts[k][1];
+      const vs = pronoVentanasDe(loc.hourly);
+      const peor = pronoPeor(vs.map(v => v.col));
+      if (peor !== 'verde') conAlerta++;
+      const cm = L.circleMarker([lat, lon], {
+        renderer: pronoCanvas, radius: (peor === 'rojo' ? 8 : peor === 'amarillo' ? 7 : 5) + EST_RADIO_EXTRA,
+        color: '#fff', weight: 1, fillColor: PRONO_COL[peor], fillOpacity: 0.9
+      });
+      cm.bindPopup(() => pronoPopupHtml(lat, lon, vs), { maxWidth: Math.min(300, window.innerWidth - 50), ...POPUP_AUTOPAN });
+      pronoLayer.addLayer(cm);
+    });
+    toastMapa(`🌦️ Pronóstico grilla ${PRONO_PASO}° · ${arr.length} pts${conAlerta ? ` · ${conAlerta} con alerta` : ''}`);
+  } catch (e) {
+    console.warn('Pronóstico grilla:', e);
+    toastMapa('⚠️ No se pudo obtener el pronóstico (¿sin conexión?).');
+  } finally { pronoCargando = false; }
+}
+function pronoBtnEstado(activo) {
+  const b = document.getElementById('mapa-pronostico');
+  if (b) b.classList.toggle('active', !!activo);
+}
+function pronoOnMove() {
+  if (!pronoOn) return;
+  clearTimeout(pronoMoveTimer);
+  pronoMoveTimer = setTimeout(renderPronostico, 700);
+}
+function togglePronostico() {
+  if (!mapaFull) return;
+  pronoOn = !pronoOn;
+  if (pronoOn) {
+    pronoLayer.addTo(mapaFull);
+    pronoBtnEstado(true);
+    renderPronostico();
+    mapaFull.on('moveend', pronoOnMove);
+  } else {
+    mapaFull.off('moveend', pronoOnMove);
+    clearTimeout(pronoMoveTimer);
+    pronoLayer.clearLayers();
+    mapaFull.removeLayer(pronoLayer);
+    pronoBtnEstado(false);
+  }
 }
 
 function collectFormData() {
@@ -3421,6 +3491,8 @@ function initMapaFull() {
   estLayer = L.layerGroup();                        // se agrega al mapa solo al activar el toggle
   minCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas para las minutas ATG
   minLayer = L.layerGroup();
+  pronoCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA }); // renderer canvas para la grilla de pronóstico
+  pronoLayer = L.layerGroup();
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
 }
@@ -3902,33 +3974,12 @@ document.getElementById('btn-kmz-dia').addEventListener('click', generateCombine
 
 // Tab bar Ficha ⇄ Mapa + botones de la vista de mapa
 document.querySelectorAll('.viewtab').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
-// Pronóstico de lluvia + isoterma 0° en el centro del mapa (Open-Meteo). Muestra un popup con
-// las ventanas 0–48 h y el semáforo, sobre el punto consultado.
-async function pronosticoMapa() {
-  if (!mapaFull) return;
-  const c = mapaFull.getCenter();
-  const btn = document.getElementById('mapa-pronostico');
-  const t0 = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
-  toastMapa('Consultando pronóstico…', 0);
-  try {
-    const pr = await computeForecast(c.lat, c.lng);
-    L.popup({ maxWidth: Math.min(320, window.innerWidth - 50), ...POPUP_AUTOPAN })
-      .setLatLng(c).setContent(pronosticoHtml(pr)).openOn(mapaFull);
-    toastMapa('🌦️ Pronóstico en el centro del mapa');
-  } catch (e) {
-    console.warn('Pronóstico mapa:', e);
-    toastMapa('⚠️ No se pudo obtener el pronóstico (¿sin conexión?).');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = t0; }
-  }
-}
 document.getElementById('mapa-gps').addEventListener('click', mapaFullGPS);
 document.getElementById('mapa-linea').addEventListener('click', iniciarDibujoLinea);
 document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
-document.getElementById('mapa-pronostico').addEventListener('click', pronosticoMapa);
+document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
 document.getElementById('app-ver').textContent = APP_VER;
 
