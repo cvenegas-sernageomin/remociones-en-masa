@@ -972,7 +972,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v38';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v39';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2477,8 +2477,9 @@ document.getElementById('btn-lluvia-gps')?.addEventListener('click', estimarLluv
 // color del PEOR de las 4 ventanas (+0–6/+6–12/+12–24/+24–48 h). Umbrales del visor de alertas:
 //   verde: precip<5 mm O isoterma<2500 m · amarillo: precip≥5 y iso≥2500 · rojo: precip≥20 y iso≥3000.
 // (Modelo por defecto de Open-Meteo; el visor usa multimodelo. Se recomputa al mover el mapa.)
-const PRONO_PASO = 0.25;            // espaciado de la grilla en grados (0.5 = menos densa)
-const PRONO_MAX_PTS = 96;           // Open-Meteo admite ~100 coordenadas por llamada
+const PRONO_PASO = 0.5;             // espaciado de la grilla en grados (0.25 = más densa)
+const PRONO_MAX_PTS = 300;          // tope de puntos; se consultan en lotes de 100 (batching)
+const PRONO_CHUNK = 100;            // Open-Meteo admite ~100 coordenadas por llamada
 const PRONO_VENTANAS = [[0, 6], [6, 12], [12, 24], [24, 48]];
 const PRONO_COL = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d' };
 let pronoLayer = null, pronoCanvas = null, pronoOn = false, pronoCargando = false, pronoMoveTimer = null;
@@ -2528,22 +2529,40 @@ function pronoGridPuntos() {
       pts.push([Math.round(la * 100) / 100, Math.round(lo * 100) / 100]);
   return pts;
 }
+// Ícono CUADRADO para los puntos de pronóstico — forma distinta a los círculos de las estaciones.
+function pronoIcon(col, peor) {
+  const s = (peor === 'rojo' ? 15 : peor === 'amarillo' ? 12 : 10) + (ES_TACTIL ? 3 : 0);
+  return L.divIcon({
+    className: 'prono-sq',
+    html: `<div style="width:${s}px;height:${s}px;background:${col};border:1.5px solid #fff;box-shadow:0 0 2px rgba(0,0,0,0.45)"></div>`,
+    iconSize: [s, s], iconAnchor: [s / 2, s / 2]
+  });
+}
+// Consulta Open-Meteo por lotes de 100 coords (permite grillas grandes/regionales en varias llamadas).
+async function fetchPronosticoLotes(pts) {
+  const out = [];
+  for (let i = 0; i < pts.length; i += PRONO_CHUNK) {
+    const chunk = pts.slice(i, i + PRONO_CHUNK);
+    const lats = chunk.map(p => p[0]).join(','), lons = chunk.map(p => p[1]).join(',');
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=precipitation,freezing_level_height&forecast_days=2&timezone=auto`;
+    const d = await (await fetch(u)).json();
+    (Array.isArray(d) ? d : [d]).forEach(x => out.push(x));
+  }
+  return out;
+}
 async function renderPronostico() {
   if (!mapaFull || pronoCargando) return;
   const pts = pronoGridPuntos();
   if (!pts.length) return;
   if (pts.length > PRONO_MAX_PTS) {
     pronoLayer.clearLayers();
-    toastMapa(`Acércate para ver la grilla de ${PRONO_PASO}° (${pts.length} puntos; máx. ${PRONO_MAX_PTS}).`);
+    toastMapa(`Acércate un poco: la vista tiene ${pts.length} puntos de grilla (${PRONO_PASO}°; máx. ${PRONO_MAX_PTS}).`);
     return;
   }
   pronoCargando = true;
   toastMapa(`Consultando pronóstico (${pts.length} puntos)…`, 0);
   try {
-    const lats = pts.map(p => p[0]).join(','), lons = pts.map(p => p[1]).join(',');
-    const u = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=precipitation,freezing_level_height&forecast_days=2&timezone=auto`;
-    const d = await (await fetch(u)).json();
-    const arr = Array.isArray(d) ? d : [d];
+    const arr = await fetchPronosticoLotes(pts);
     pronoLayer.clearLayers();
     let conAlerta = 0;
     arr.forEach((loc, k) => {
@@ -2552,12 +2571,9 @@ async function renderPronostico() {
       const vs = pronoVentanasDe(loc.hourly);
       const peor = pronoPeor(vs.map(v => v.col));
       if (peor !== 'verde') conAlerta++;
-      const cm = L.circleMarker([lat, lon], {
-        renderer: pronoCanvas, radius: (peor === 'rojo' ? 8 : peor === 'amarillo' ? 7 : 5) + EST_RADIO_EXTRA,
-        color: '#fff', weight: 1, fillColor: PRONO_COL[peor], fillOpacity: 0.9
-      });
-      cm.bindPopup(() => pronoPopupHtml(lat, lon, vs), { maxWidth: Math.min(300, window.innerWidth - 50), ...POPUP_AUTOPAN });
-      pronoLayer.addLayer(cm);
+      const mk = L.marker([lat, lon], { icon: pronoIcon(PRONO_COL[peor], peor), keyboard: false });
+      mk.bindPopup(() => pronoPopupHtml(lat, lon, vs), { maxWidth: Math.min(300, window.innerWidth - 50), ...POPUP_AUTOPAN });
+      pronoLayer.addLayer(mk);
     });
     toastMapa(`🌦️ Pronóstico grilla ${PRONO_PASO}° · ${arr.length} pts${conAlerta ? ` · ${conAlerta} con alerta` : ''}`);
   } catch (e) {
@@ -2572,7 +2588,7 @@ function pronoBtnEstado(activo) {
 function pronoOnMove() {
   if (!pronoOn) return;
   clearTimeout(pronoMoveTimer);
-  pronoMoveTimer = setTimeout(renderPronostico, 700);
+  pronoMoveTimer = setTimeout(renderPronostico, 1200);   // espera a que el mapa se asiente (menos churn al hacer zoom/pan)
 }
 function togglePronostico() {
   if (!mapaFull) return;
@@ -3564,8 +3580,9 @@ const ZONA_CSS = { generacion: '#ff0000', runout: '#0066ff', ambas: '#00cccc' };
 function iconoRM(rec) {
   const d = rec.data || {}; const col = ZONA_CSS[d.zona] || '#e63946';
   let sym = ''; (d['estructuras-dip'] || []).forEach(e => { sym += svgEstructura(e, 24, 24); });
+  // Triángulo (símbolo de peligro) — forma distinta a los círculos de estaciones y a los cuadrados del pronóstico.
   const html = `<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">`
-    + `<circle cx="24" cy="24" r="6" fill="${col}" stroke="#fff" stroke-width="2"/>${sym}</svg>`;
+    + `<path d="M24 15 L33 31 L15 31 Z" fill="${col}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>${sym}</svg>`;
   return L.divIcon({ html, className: 'rm-divicon', iconSize: [48, 48], iconAnchor: [24, 24] });
 }
 
@@ -3996,7 +4013,9 @@ function legendaMapa() {
   box.style.cssText = 'background:var(--bg,#111);color:var(--fg,#eee);border-radius:12px;padding:16px;max-width:420px;width:100%;border:1px solid var(--border,#333)';
   box.innerHTML = `<h3 style="margin:0 0 10px">Simbología</h3>
     <div style="font-size:0.85rem;line-height:1.6;color:var(--muted)">
-    <b style="color:#ff0000">●</b> RM zona generación · <b style="color:#0066ff">●</b> runout · <b style="color:#00cccc">●</b> ambas<br>
+    <b style="color:#ff0000">▲</b> RM zona generación · <b style="color:#0066ff">▲</b> runout · <b style="color:#00cccc">▲</b> ambas <i>(triángulo)</i><br>
+    <b style="color:#22c55e">■</b> <b style="color:#ffcc00">■</b> <b style="color:#ff2d2d">■</b> punto de pronóstico <i>(cuadrado; verde/amarillo/rojo según lluvia + isoterma)</i><br>
+    <b style="color:#22c55e">●</b> estación meteorológica <i>(círculo; color por lluvia registrada)</i><br>
     <b>—⊢ 30</b> rumbo/manteo de una estructura (tick al lado del manteo, valor en grados)<br>
     <b>→ 40</b> lineación / estría (flecha = trend, valor = plunge)<br>
     símbolo en <b style="color:#b02a1a">rojo</b> = estructura tipo falla<br>
