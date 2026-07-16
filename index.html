@@ -953,7 +953,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v32';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v33';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2786,7 +2786,7 @@ async function generateRETERM(record) {
       obsPartes.push(litFrase + '.');
     }
     if (data.componentes?.length) {
-      const nombresComp = { antropico: 'material antrópico (restos de hormigón, asfalto, basura, plásticos, partes de vehículos)', vegetal: 'árboles y restos vegetales (troncos, ramas y raíces)' };
+      const nombresComp = { antropico: 'material antrópico', vegetal: 'árboles y restos vegetales' };
       const items = data.componentes.map(c => nombresComp[c] || c);
       let frase = `El depósito incorpora ${esc(items.join(' y '))}.`;
       if (data.componentes.includes('vegetal')) frase += ' El material orgánico altera el volumen movilizado y puede actuar como dique, generando represamientos temporales.';
