@@ -839,8 +839,8 @@ body.map-mode #nav-buttons { display: none !important; }
       <button type="button" class="chip" data-val="Se recomienda evaluar la reubicación de la infraestructura o vivienda expuesta ante la persistencia del riesgo.">Evaluar reubicación</button>
       <button type="button" class="chip" data-val="Se recomienda informar oportunamente a las autoridades y organismos competentes ante cualquier variación relevante en las condiciones del sitio.">Informar ante cambios</button>
     </div>
-    <p style="font-size:0.75rem;color:var(--muted);margin:6px 0 4px">Otras recomendaciones (texto libre)</p>
-    <textarea id="recom-libre" placeholder="Agrega recomendaciones adicionales específicas para este caso..."></textarea>
+    <p style="font-size:0.75rem;color:var(--muted);margin:6px 0 4px">Otras recomendaciones (una por viñeta · Enter agrega otra)</p>
+    <textarea id="recom-libre" placeholder="• Recomendación específica para este caso&#10;• Otra recomendación…"></textarea>
   </div>
 </div>
 
@@ -997,7 +997,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v44';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v45';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2776,6 +2776,8 @@ function wP(runs, o) {
   o = o || {}; let pp = '';
   if (o.align) pp += '<w:jc w:val="' + o.align + '"/>';
   pp += '<w:spacing w:after="' + (o.after != null ? o.after : 0) + '" w:line="259" w:lineRule="auto"/>';
+  // sangrado colgante para viñetas: la 2ª línea en adelante se alinea bajo el texto, no bajo la •
+  if (o.ind) pp += '<w:ind w:left="' + (o.ind.left || 0) + '"' + (o.ind.hanging ? ' w:hanging="' + o.ind.hanging + '"' : '') + '/>';
   return '<w:p><w:pPr>' + pp + '</w:pPr>' + (runs || '') + '</w:p>';
 }
 function wField(label, value) { return wP(wR(label + ': ', { b: true }) + wR(value)); }
@@ -3002,10 +3004,14 @@ async function generateRETERM(record, ret) {
       else if (data.amenaza === 'no') concluParts.push(`Si bien el proceso no evidencia actividad, se recomienda mantener el monitoreo del sector ante ${gatillo}.`);
     }
 
-    // Recomendaciones: checklist + texto libre; si vacío, sugerencias generales por defecto
+    // Recomendaciones: checklist + texto libre; si vacío, sugerencias generales por defecto.
+    // El texto libre se ingresa como lista con viñetas (una por línea); se quita la viñeta
+    // que el usuario haya tecleado (•/-/*/·) para no duplicarla con la que agrega el Word.
     let recomList = [...(data['recomendaciones-check'] || [])];
     if ((data['recomendaciones-libre'] || '').trim()) {
-      data['recomendaciones-libre'].split(/\n+/).map(s => s.trim()).filter(Boolean).forEach(s => recomList.push(s));
+      data['recomendaciones-libre'].split(/\n+/)
+        .map(s => s.trim().replace(/^[•·*\-]+\s*/, '').trim())
+        .filter(Boolean).forEach(s => recomList.push(s));
     }
     if (recomList.length === 0) {
       recomList = [
@@ -3078,7 +3084,7 @@ async function generateRETERM(record, ret) {
     const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
     const concluXml = concluParts.map(p => wP(wR('• ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('')
       + wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
-      + recomList.map(r => wP(wR('• ' + htmlToPlain(r)), { align: 'both', after: 60 })).join('');
+      + recomList.map(r => wP(wR('• ' + htmlToPlain(r)), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('');
 
     const figLetters = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
     let fotosRows = '';
@@ -4453,6 +4459,28 @@ document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas)
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
 document.getElementById('app-ver').textContent = APP_VER;
+
+// Textarea con viñetas: al enfocar vacío pone "• "; Enter agrega una nueva viñeta; al salir
+// limpia si quedó solo una viñeta vacía. La generación del Word ya quita la viñeta tecleada
+// para no duplicarla, así que el usuario ingresa las recomendaciones como lista ordenada.
+function initBulletTextarea(ta) {
+  if (!ta) return;
+  const B = '• ';
+  ta.addEventListener('focus', () => { if (ta.value.trim() === '') ta.value = B; });
+  ta.addEventListener('blur', () => {
+    const soloVinetasVacias = ta.value.split('\n').every(l => l.replace(/[•·*\-\s]/g, '') === '');
+    if (soloVinetasVacias) ta.value = '';
+  });
+  ta.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const s = ta.selectionStart, en = ta.selectionEnd, ins = '\n' + B;
+    ta.value = ta.value.slice(0, s) + ins + ta.value.slice(en);
+    ta.selectionStart = ta.selectionEnd = s + ins.length;
+    ta.dispatchEvent(new Event('input'));
+  });
+}
+initBulletTextarea(document.getElementById('recom-libre'));
 
 // Iniciales del profesional: persistir y regenerar el ID sugerido al cambiar
 const inicialesEl = document.getElementById('prof-iniciales');
