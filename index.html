@@ -997,7 +997,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v45';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v46';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3098,12 +3098,14 @@ async function generateRETERM(record, ret) {
 
     const tabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>'
       + '<w:tblGrid><w:gridCol w:w="' + LW + '"/><w:gridCol w:w="' + RW + '"/></w:tblGrid>'
+      // Orden según los informes RETERM de referencia: antecedentes (con Figura A satelital)
+      // → registro fotográfico de terreno → observaciones → conclusiones y recomendaciones.
       + secRow('Descripción de remoción en masa tipo ' + tipo + ' observada el ' + fechaStr)
       + idRows
       + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
+      + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
       + secRow('Observaciones') + fullRow(obsXml)
       + secRow('Conclusiones y recomendaciones') + fullRow(concluXml)
-      + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
       + '</w:tbl>';
 
     const sectPr = '<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/>'
