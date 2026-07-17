@@ -92,6 +92,10 @@ body.map-mode #nav-buttons { display: none !important; }
    fila no quede tapada por la barra del navegador móvil y el mapa gane espacio. */
 #mapa-fab .map-btn-sm { padding: 6px 9px; font-size: 0.92rem; line-height: 1; }
 #mapa-fab .pts-count { font-size: 0.72rem; color: var(--muted); flex: 0 0 auto; margin-left: auto; }
+/* Botón con sub-etiqueta de fuente debajo (P. Críticos → "SENAPRED"). */
+#mapa-fab .map-btn-stack { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; flex: 0 0 auto; }
+#mapa-fab .map-btn-stack .map-btn { width: 100%; }
+#mapa-fab .map-btn-src { font-size: 0.56rem; line-height: 1; color: var(--muted); letter-spacing: 0.03em; }
 /* Marcador de "estoy aquí" (GPS): punto azul con halo, estilo estándar de geolocalización. */
 .gps-dot {
   width: 16px; height: 16px; border-radius: 50%; background: #2563eb;
@@ -922,7 +926,10 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="mapa-linea">✏️ Línea</button>
     <button class="map-btn map-btn-sm" id="mapa-tiles" title="Descargar tiles del mapa para uso sin conexión" aria-label="Descargar tiles">⬇️</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
-    <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): 15.799 puntos de riesgo por precipitación">⚠️ P. Críticos</button>
+    <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): 15.799 puntos de riesgo por precipitación">⚠️ P. Críticos</button>
+      <small class="map-btn-src">SENAPRED</small>
+    </span>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
@@ -990,7 +997,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v43';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v44';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
