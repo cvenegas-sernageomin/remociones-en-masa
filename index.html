@@ -972,7 +972,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v39';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v40';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2046,7 +2046,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Localidad', data.localidad)}
   ${row('N° Antecedente', data['n-antecedente'])}
   ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
-  ${row('Coordenadas', `${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`)}
+  ${row('Coordenadas', coords ? `${coords.lat.toFixed(6)}, ${(coords.lng ?? coords.lon).toFixed(6)}` : null)}
   ${row('Fecha', fechaStr)}
   ${row('Hora', horaStr)}
   ${row('Desencadenante', data.desencadenante)}
@@ -3289,17 +3289,19 @@ async function saveCurrentRM() {
     console.error(e);
   }
 }
+let _entregaId = '';
 function abrirEntregaModal(id) {
   const m = document.getElementById('entrega-modal');
   if (!m) return;
+  _entregaId = id || '';
   const n = _archivosRM.length;
   const files = _archivosRM.map(a => new File([a.blob], a.filename, { type: a.mime }));
   const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files }));
   const cual = n > 1 ? `los ${n} archivos (Word, KMZ y respaldo)` : 'el archivo';
   document.getElementById('entrega-msg').textContent =
-    `${id ? `RM "${id}". ` : ''}${puedeCompartir ? `Comparte ${cual} por correo (un solo envío) o descárgalo${n > 1 ? 's' : ''}.` : `Descarga ${cual}.`}`;
+    `${id ? `RM "${id}". ` : ''}${puedeCompartir ? `Comparte ${cual} por correo (un solo envío) o descárgalo${n > 1 ? 's en un ZIP' : ''}.` : (n > 1 ? `Descarga los ${n} archivos en un ZIP.` : 'Descarga el archivo.')}`;
   document.getElementById('entrega-compartir').textContent = n > 1 ? '📤 Compartir (Word + KMZ + JSON)' : '📤 Compartir';
-  document.getElementById('entrega-descargar').textContent = n > 1 ? '⬇️ Descargar los archivos' : '⬇️ Descargar';
+  document.getElementById('entrega-descargar').textContent = n > 1 ? '⬇️ Descargar (ZIP con los 3)' : '⬇️ Descargar';
   document.getElementById('entrega-compartir').style.display = puedeCompartir ? '' : 'none';
   m.style.display = 'flex';
 }
@@ -3310,14 +3312,28 @@ async function entregaCompartir() {
       await navigator.share({ files, title: 'Remoción en masa' });
       document.getElementById('entrega-modal').style.display = 'none';
     } else {
-      entregaDescargar();
+      await entregaDescargar();
     }
   } catch (e) {
     if (e.name !== 'AbortError') { console.warn('Compartir:', e); alert('No se pudo compartir. Usa «Descargar».'); }
   }
 }
-function entregaDescargar() {
-  _archivosRM.forEach(a => downloadBlob(a.blob, a.filename));
+// Descarga: si hay más de un archivo, se empaquetan en UN solo ZIP. Descargar varios blobs
+// seguidos hace que el navegador (sobre todo en PC) bloquee/omita algunos (por eso "faltaba" el KMZ).
+async function entregaDescargar() {
+  try {
+    if (_archivosRM.length === 1) {
+      downloadBlob(_archivosRM[0].blob, _archivosRM[0].filename);
+    } else if (_archivosRM.length > 1) {
+      const zip = new JSZip();
+      _archivosRM.forEach(a => zip.file(a.filename, a.blob));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(blob, `RM_${(_entregaId || 'archivos').replace(/[^A-Za-z0-9_-]/g, '_')}.zip`);
+    }
+  } catch (e) {
+    alert('No se pudieron descargar los archivos: ' + e.message);
+    console.error(e);
+  }
   document.getElementById('entrega-modal').style.display = 'none';
 }
 
