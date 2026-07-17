@@ -979,7 +979,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v41';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v42';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3330,9 +3330,15 @@ function abrirEntregaModal(id) {
   const n = _archivosRM.length;
   const files = _archivosRM.map(a => new File([a.blob], a.filename, { type: a.mime }));
   const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files }));
+  // Chrome en Android bloquea compartir .docx/.kmz/.json por Web Share (lista blanca de
+  // extensiones: solo audio/imagen/video/texto/pdf). En ese caso hay que descargar el ZIP
+  // y adjuntarlo al correo a mano — se explica en el mensaje del modal.
+  const androidBloqueado = !puedeCompartir && !!navigator.share && /android/i.test(navigator.userAgent);
   const cual = n > 1 ? `los ${n} archivos (Word, KMZ y respaldo)` : 'el archivo';
   document.getElementById('entrega-msg').textContent =
-    `${id ? `RM "${id}". ` : ''}${puedeCompartir ? `Comparte ${cual} por correo (un solo envío) o descárgalo${n > 1 ? 's en un ZIP' : ''}.` : (n > 1 ? `Descarga los ${n} archivos en un ZIP.` : 'Descarga el archivo.')}`;
+    `${id ? `RM "${id}". ` : ''}${puedeCompartir ? `Comparte ${cual} por correo (un solo envío) o descárgalo${n > 1 ? 's en un ZIP' : ''}.`
+      : androidBloqueado ? `Chrome en Android no permite compartir archivos Word/KMZ directamente. Descarga el ZIP y adjúntalo al correo (Gmail → 📎 adjuntar → Archivos → Descargas).`
+      : (n > 1 ? `Descarga los ${n} archivos en un ZIP.` : 'Descarga el archivo.')}`;
   document.getElementById('entrega-compartir').textContent = n > 1 ? '📤 Compartir (Word + KMZ + JSON)' : '📤 Compartir';
   document.getElementById('entrega-descargar').textContent = n > 1 ? '⬇️ Descargar (ZIP con los 3)' : '⬇️ Descargar';
   document.getElementById('entrega-compartir').style.display = puedeCompartir ? '' : 'none';
@@ -3348,7 +3354,16 @@ async function entregaCompartir() {
       await entregaDescargar();
     }
   } catch (e) {
-    if (e.name !== 'AbortError') { console.warn('Compartir:', e); alert('No se pudo compartir. Usa «Descargar».'); }
+    if (e.name === 'AbortError') return; // el usuario cerró la hoja de compartir
+    console.warn('Compartir:', e);
+    if (e.name === 'NotAllowedError' && /android/i.test(navigator.userAgent)) {
+      // Chrome Android bloquea .docx/.kmz/.json en Web Share (lista blanca de extensiones)
+      // → caer al ZIP y explicar cómo adjuntarlo al correo.
+      alert('Chrome en Android no permite compartir archivos Word/KMZ directamente.\n\nSe descargará un ZIP con los archivos: adjúntalo al correo (Gmail → 📎 adjuntar → Archivos → Descargas).');
+      await entregaDescargar();
+    } else {
+      alert('No se pudo compartir. Usa «Descargar».');
+    }
   }
 }
 // Descarga: si hay más de un archivo, se empaquetan en UN solo ZIP. Descargar varios blobs
