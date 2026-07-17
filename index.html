@@ -83,11 +83,21 @@ body.map-mode #nav-buttons { display: none !important; }
 #mapa-view.active { display: flex; }
 #mapa-full { flex: 1; min-height: 300px; z-index: 1; }
 #mapa-fab {
-  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
-  padding: 8px 10px; background: var(--surface, var(--mid)); border-top: 1px solid var(--border, var(--light));
+  display: flex; gap: 4px; flex-wrap: wrap; align-items: center;
+  padding: 6px 7px; background: var(--surface, var(--mid)); border-top: 1px solid var(--border, var(--light));
 }
-#mapa-fab .map-btn { flex: 0 0 auto; }
-#mapa-fab .pts-count { font-size: 0.75rem; color: var(--muted); flex: 1; text-align: right; }
+#mapa-fab .map-btn { flex: 0 0 auto; padding: 6px 8px; font-size: 0.72rem; }
+/* GPS y Tiles como icono solo (sin texto): son utilitarios y con el título/aria se entienden.
+   Reduce el ancho ~2 botones y baja la barra de 3 filas a 2 (132px→~75px), para que la última
+   fila no quede tapada por la barra del navegador móvil y el mapa gane espacio. */
+#mapa-fab .map-btn-sm { padding: 6px 9px; font-size: 0.92rem; line-height: 1; }
+#mapa-fab .pts-count { font-size: 0.72rem; color: var(--muted); flex: 0 0 auto; margin-left: auto; }
+/* Marcador de "estoy aquí" (GPS): punto azul con halo, estilo estándar de geolocalización. */
+.gps-dot {
+  width: 16px; height: 16px; border-radius: 50%; background: #2563eb;
+  border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(37,99,235,0.5), 0 1px 4px rgba(0,0,0,0.4);
+}
+.gps-accuracy { color: #2563eb; }
 .draw-banner {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 1200;
   background: rgba(18,20,26,0.92); color: #fff; padding: 8px 12px; border-radius: 10px;
@@ -908,10 +918,11 @@ body.map-mode #nav-buttons { display: none !important; }
 <div id="mapa-view">
   <div id="mapa-full"></div>
   <div id="mapa-fab">
-    <button class="map-btn" id="mapa-gps">📡 GPS</button>
+    <button class="map-btn map-btn-sm" id="mapa-gps" title="Centrar en mi ubicación (GPS)" aria-label="GPS">📡</button>
     <button class="map-btn" id="mapa-linea">✏️ Línea</button>
-    <button class="map-btn" id="mapa-tiles">⬇️ Tiles</button>
+    <button class="map-btn map-btn-sm" id="mapa-tiles" title="Descargar tiles del mapa para uso sin conexión" aria-label="Descargar tiles">⬇️</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
+    <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): 15.799 puntos de riesgo por precipitación">⚠️ P. Críticos</button>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
@@ -979,7 +990,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v42';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v43';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3797,6 +3808,8 @@ function initMapaFull() {
   minLayer = L.layerGroup();
   pronoCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA }); // renderer canvas para la grilla de pronóstico
   pronoLayer = L.layerGroup();
+  pcCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });    // renderer canvas para puntos críticos (15.799)
+  pcLayer = L.layerGroup();
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
 }
@@ -3834,11 +3847,39 @@ async function abrirRMDesdeMapa(rec) {
   populateForm(match);
   showView('ficha');
 }
+// Marcador "estoy aquí": punto azul + círculo de precisión. Se recrea en cada fix.
+let gpsMarker = null, gpsAccuracyCircle = null;
+function mostrarGpsMarker(lat, lng, accuracy) {
+  if (!mapaFull) return;
+  if (gpsMarker) mapaFull.removeLayer(gpsMarker);
+  if (gpsAccuracyCircle) mapaFull.removeLayer(gpsAccuracyCircle);
+  if (accuracy && accuracy > 0) {
+    gpsAccuracyCircle = L.circle([lat, lng], {
+      radius: accuracy, className: 'gps-accuracy',
+      color: '#2563eb', weight: 1, opacity: 0.5, fillColor: '#2563eb', fillOpacity: 0.12
+    }).addTo(mapaFull);
+  }
+  gpsMarker = L.marker([lat, lng], {
+    icon: L.divIcon({ className: 'gps-divicon', html: '<div class="gps-dot"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),
+    interactive: true, keyboard: false, zIndexOffset: 500
+  }).addTo(mapaFull);
+  const prec = accuracy ? ' (±' + Math.round(accuracy) + ' m)' : '';
+  gpsMarker.bindTooltip('📍 Estás aquí' + prec, { direction: 'top', offset: [0, -8] });
+}
 function mapaFullGPS() {
   if (!navigator.geolocation || !mapaFull) return;
+  const b = document.getElementById('mapa-gps');
+  const txt0 = b ? b.textContent : '';
+  if (b) { b.textContent = '⏳'; b.disabled = true; }
   navigator.geolocation.getCurrentPosition(
-    p => mapaFull.setView([p.coords.latitude, p.coords.longitude], 16),
-    () => alert('GPS no disponible.'), { enableHighAccuracy: true, timeout: 10000 });
+    p => {
+      if (b) { b.textContent = txt0; b.disabled = false; }
+      const { latitude, longitude, accuracy } = p.coords;
+      mostrarGpsMarker(latitude, longitude, accuracy);
+      mapaFull.setView([latitude, longitude], 16);
+    },
+    () => { if (b) { b.textContent = txt0; b.disabled = false; } alert('GPS no disponible.'); },
+    { enableHighAccuracy: true, timeout: 10000 });
 }
 function mapaFullTiles() {
   descargarTilesConZoom(mapaFullSavetiles, mapaFull);
@@ -3957,6 +3998,108 @@ function toggleEstaciones() {
     if (estTimer) { clearInterval(estTimer); estTimer = null; }
     mapaFull.removeLayer(estLayer);
     estBtnEstado('🌧️ Estaciones', false);
+  }
+}
+
+// ---- Puntos Críticos INV 2026 (SENAPRED) ----
+// Snapshot de la capa oficial ArcGIS `compilado_INV_2026` de SENAPRED (geoportalonemi),
+// 15.799 puntos de riesgo por precipitación para el invierno 2026, traído de la fuente y
+// guardado como asset local (puntos_criticos.json, ~1.7 MB / ~320 KB gzip) para uso offline.
+// Estructura compacta: campos codificados con diccionarios (niveles/causas/tipos/regiones).
+// Se pinta con canvas + tolerancia táctil, igual que estaciones/minutas.
+let pcLayer = null, pcCanvas = null, pcOn = false, pcData = null, pcCargando = false;
+const PC_URL = 'puntos_criticos.json';
+// Color por Nivel de Riesgo (mismo criterio SENAPRED). "Solucionado*" en gris apagado.
+const PC_COLOR = {
+  'Muy Alto': '#7e22ce', 'Alto': '#dc2626', 'Medio': '#f59e0b', 'Bajo': '#16a34a',
+  'Solucionado': '#94a3b8', 'Solucionado Periodo Actual': '#64748b'
+};
+const PC_RADIO = { 'Muy Alto': 6, 'Alto': 5, 'Medio': 4, 'Bajo': 4 };
+function pcBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-criticos');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+function esc2(s) { return String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+// Culling por viewport: con 15.799 puntos, dibujarlos todos en cada pan lagea en móvil
+// (~750ms el render completo). Se dibujan solo los que caen en la vista actual (con margen),
+// y se redibuja en 'moveend'. Al acercar el zoom quedan poquísimos → fluido; a escala país
+// se ve la densidad completa (un solo render).
+function renderCriticos() {
+  if (!pcLayer || !pcData) return;
+  pcLayer.clearLayers();
+  const { niveles, causas, tipos, regiones, puntos } = pcData;
+  const b = mapaFull.getBounds().pad(0.25);
+  const s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
+  let dibujados = 0;
+  puntos.forEach(p => {
+    const [lon, lat, ni, ci, ti, ri, sector, comuna, acciones] = p;
+    if (lat < s || lat > n || lon < w || lon > e) return;   // fuera de la vista → se omite
+    dibujados++;
+    const nivel = niveles[ni] || 'Sin nivel';
+    const color = PC_COLOR[nivel] || '#dc2626';
+    const cm = L.circleMarker([lat, lon], {
+      renderer: pcCanvas, radius: (PC_RADIO[nivel] || 4) + EST_RADIO_EXTRA,
+      color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9
+    });
+    const causa = causas[ci] || '—', tipo = tipos[ti] || '—', region = regiones[ri] || '—';
+    const acc = acciones && acciones !== 'No Aplica' ? '<br/><b>Acción:</b> ' + esc2(acciones) : '';
+    cm.bindPopup(
+      '<b>⚠️ Punto Crítico ' + esc2(nivel) + '</b><br/>' +
+      '<b>' + esc2(sector || 'Sin sector') + '</b><br/>' +
+      esc2(comuna) + ' · ' + esc2(region) + '<br/>' +
+      '<b>Causa:</b> ' + esc2(causa) + '<br/>' +
+      '<b>Solución:</b> ' + esc2(tipo) + acc +
+      '<hr style="margin:6px 0"/><small style="color:#8a94a3">Fuente: SENAPRED · Puntos Críticos INV 2026</small>',
+      { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+    pcLayer.addLayer(cm);
+  });
+  pcVisibles = dibujados;
+}
+let pcVisibles = 0;
+// Redibuja al mover el mapa (debounced), solo mientras la capa está activa.
+let pcMoveTimer = null;
+function pcOnMoveEnd() {
+  if (!pcOn || !pcData) return;
+  clearTimeout(pcMoveTimer);
+  pcMoveTimer = setTimeout(renderCriticos, 200);
+}
+async function cargarCriticos() {
+  if (pcCargando) return;
+  if (pcData) { renderCriticos(); return; }
+  pcCargando = true;
+  pcBtnEstado('⏳ P. Críticos', true);
+  toastMapa('Cargando puntos críticos…', 0);
+  try {
+    const resp = await fetch(PC_URL, { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    pcData = await resp.json();
+    renderCriticos();
+    toastMapa('⚠️ ' + pcData.n.toLocaleString('es-CL') + ' puntos críticos SENAPRED (INV ' +
+              (pcData.actualizado ? pcData.actualizado.slice(0, 4) : '2026') + '). Acerca el zoom para verlos por sector.');
+  } catch (err) {
+    console.warn('Puntos críticos:', err);
+    toastMapa('⚠️ No se pudieron cargar los puntos críticos (¿sin conexión la 1ª vez?)');
+    pcOn = false;
+    if (pcLayer) mapaFull.removeLayer(pcLayer);
+  } finally {
+    pcCargando = false;
+    pcBtnEstado('⚠️ P. Críticos', pcOn);
+  }
+}
+function toggleCriticos() {
+  if (!mapaFull) return;
+  pcOn = !pcOn;
+  if (pcOn) {
+    pcLayer.addTo(mapaFull);
+    pcBtnEstado('⏳ P. Críticos', true);
+    mapaFull.on('moveend', pcOnMoveEnd);
+    cargarCriticos();
+  } else {
+    mapaFull.off('moveend', pcOnMoveEnd);
+    mapaFull.removeLayer(pcLayer);
+    pcBtnEstado('⚠️ P. Críticos', false);
   }
 }
 
@@ -4172,6 +4315,8 @@ function legendaMapa() {
     <b style="color:#ff0000">▲</b> RM zona generación · <b style="color:#0066ff">▲</b> runout · <b style="color:#00cccc">▲</b> ambas <i>(triángulo)</i><br>
     <b style="color:#22c55e">■</b> <b style="color:#ffcc00">■</b> <b style="color:#ff2d2d">■</b> punto de pronóstico <i>(cuadrado; verde/amarillo/rojo según lluvia + isoterma)</i><br>
     <b style="color:#22c55e">●</b> estación meteorológica <i>(círculo; color por lluvia registrada)</i><br>
+    <b style="color:#7e22ce">●</b> <b style="color:#dc2626">●</b> <b style="color:#f59e0b">●</b> <b style="color:#16a34a">●</b> punto crítico SENAPRED <i>(muy alto / alto / medio / bajo)</i><br>
+    <b style="color:#2563eb">◉</b> tu ubicación GPS <i>(punto azul con halo de precisión)</i><br>
     <b>—⊢ 30</b> rumbo/manteo de una estructura (tick al lado del manteo, valor en grados)<br>
     <b>→ 40</b> lineación / estría (flecha = trend, valor = plunge)<br>
     símbolo en <b style="color:#b02a1a">rojo</b> = estructura tipo falla<br>
@@ -4296,6 +4441,7 @@ document.getElementById('mapa-gps').addEventListener('click', mapaFullGPS);
 document.getElementById('mapa-linea').addEventListener('click', iniciarDibujoLinea);
 document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
+document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
