@@ -887,6 +887,9 @@ body.map-mode #nav-buttons { display: none !important; }
     <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:8px;background:var(--red,#e63946);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       ⬇️ KMZ del día (todas las RM)
     </button>
+    <button type="button" id="btn-guardar-jornada" style="width:100%;padding:12px;margin-bottom:8px;background:#0f766e;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
+      🗓️ Archivar jornada y empezar de cero
+    </button>
     <div style="display:flex;gap:8px;margin-bottom:6px">
       <button type="button" id="btn-export-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">💾 Guardar respaldo</button>
       <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
@@ -894,6 +897,10 @@ body.map-mode #nav-buttons { display: none !important; }
     </div>
     <p style="font-size:0.72rem;color:var(--muted);margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras y lo ves en el mapa, incluso en otro dispositivo.</p>
     <div id="rms-list"></div>
+    <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px">
+      <h4 style="margin:0 0 8px;font-size:0.95rem">🗓️ Jornadas archivadas</h4>
+      <div id="jornadas-list"></div>
+    </div>
   </div>
 </div>
 
@@ -972,7 +979,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v40';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v41';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3122,7 +3129,7 @@ async function generateRETERM(record, ret) {
 const RM_DB = 'catastro-rm', RM_STORE = 'rms';
 let savedRMsCache = [];
 
-const RM_DB_VERSION = 2, LINEA_STORE = 'lineas';
+const RM_DB_VERSION = 3, LINEA_STORE = 'lineas', JORNADA_STORE = 'jornadas';
 let _dbPromise = null;
 function rmDbOpen() {
   if (_dbPromise) return _dbPromise;
@@ -3133,6 +3140,7 @@ function rmDbOpen() {
       const db = req.result;
       if (!db.objectStoreNames.contains(RM_STORE)) db.createObjectStore(RM_STORE, { keyPath: 'key', autoIncrement: true });
       if (!db.objectStoreNames.contains(LINEA_STORE)) db.createObjectStore(LINEA_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(JORNADA_STORE)) db.createObjectStore(JORNADA_STORE, { keyPath: 'id' });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -3189,6 +3197,31 @@ async function rmDelete(key) {
   const db = await rmDbOpen();
   return new Promise((resolve, reject) => {
     const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+// --- Jornadas: archivos de un día de terreno (snapshot de las RM + líneas de esa jornada) ---
+async function jornadaPut(rec) {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(JORNADA_STORE, 'readwrite').objectStore(JORNADA_STORE).put(rec);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function jornadaGetAll() {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(JORNADA_STORE, 'readonly').objectStore(JORNADA_STORE).getAll();
+    req.onsuccess = () => resolve((req.result || []).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)));
+    req.onerror = () => reject(req.error);
+  });
+}
+async function jornadaDelete(id) {
+  const db = await rmDbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(JORNADA_STORE, 'readwrite').objectStore(JORNADA_STORE).delete(id);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
@@ -3434,8 +3467,100 @@ function populateForm(rec) {
 }
 
 // ----- Modal de lista de RMs -----
-function openRMsModal() { renderRMsList(); document.getElementById('rms-modal').style.display = 'flex'; }
+function openRMsModal() { renderRMsList(); renderJornadas(); document.getElementById('rms-modal').style.display = 'flex'; }
 function closeRMsModal() { document.getElementById('rms-modal').style.display = 'none'; }
+
+// ---- Jornadas (cerrar el día): archivar las RM del día y empezar de cero ----
+function jornadaFechaLabel(j) {
+  return new Date(j.savedAt || Date.now()).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+async function jornadaGuardar() {
+  const rms = await rmGetAll();
+  if (!rms.length) { alert('No hay RMs para archivar en la jornada.'); return; }
+  if (!confirm(`¿Archivar la jornada de hoy con ${rms.length} RM y dejar el listado en cero para empezar de nuevo?\n\nQuedará guardada en el dispositivo y podrás recargarla después para editarla o descargarla.`)) return;
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Archivando jornada...';
+  try {
+    const lineas = await lineaGetAll();
+    const jornada = {
+      id: 'jornada-' + Date.now(),
+      fecha: todayStr(), savedAt: Date.now(), ini: getIniciales(),
+      nRms: rms.length, rms: await serializeRMs(rms), lineas
+    };
+    await jornadaPut(jornada);
+    for (const r of rms) await rmDelete(r.key);
+    for (const l of lineas) await lineaDelete(l.id);
+    if (mapaFull) await renderMapaFull();
+    await refreshRMsCount();
+    await renderRMsList();
+    await renderJornadas();
+    loading.classList.remove('open');
+    alert(`Jornada archivada (${rms.length} RM). El listado quedó en cero para la próxima jornada.`);
+  } catch (e) {
+    loading.classList.remove('open');
+    alert('No se pudo archivar la jornada: ' + e.message); console.error(e);
+  }
+}
+async function jornadaCargar(id) {
+  const j = (await jornadaGetAll()).find(x => x.id === id);
+  if (!j) return;
+  if (!confirm(`¿Cargar la jornada del ${jornadaFechaLabel(j)} (${j.nRms} RM) al listado activo para editarla?\n\nSe agregan a lo que tengas ahora (las de igual ID se omiten).`)) return;
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Cargando jornada...';
+  try {
+    const { nuevas, omitidas } = await restoreRMs(j.rms, true);
+    for (const l of (j.lineas || [])) { try { await lineaPut(l); } catch {} }
+    if (mapaFull) await renderMapaFull();
+    await refreshRMsCount();
+    await renderRMsList();
+    loading.classList.remove('open');
+    alert(`Cargadas ${nuevas} RM${omitidas ? ` (${omitidas} ya estaban)` : ''}. Ya puedes editarlas desde el listado.`);
+  } catch (e) {
+    loading.classList.remove('open');
+    alert('No se pudo cargar la jornada: ' + e.message); console.error(e);
+  }
+}
+async function jornadaDescargar(id) {
+  const j = (await jornadaGetAll()).find(x => x.id === id);
+  if (!j) return;
+  const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), jornada: j.fecha, rms: j.rms, lineas: j.lineas || [] };
+  const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+  const nombre = `jornada_${j.fecha}_${(j.ini || 'SIN-INI')}.json`;
+  _archivosRM = [{ blob, filename: nombre, mime: 'application/json' }];
+  abrirEntregaModal('jornada ' + jornadaFechaLabel(j));
+}
+async function jornadaEliminar(id) {
+  const j = (await jornadaGetAll()).find(x => x.id === id);
+  if (!j) return;
+  if (!confirm(`¿Eliminar definitivamente la jornada del ${jornadaFechaLabel(j)} (${j.nRms} RM)?\n\nSi no la descargaste antes, se perderá.`)) return;
+  await jornadaDelete(id);
+  await renderJornadas();
+}
+async function renderJornadas() {
+  const cont = document.getElementById('jornadas-list');
+  if (!cont) return;
+  const js = await jornadaGetAll();
+  if (!js.length) {
+    cont.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;text-align:center;padding:8px">No hay jornadas archivadas.</p>';
+    return;
+  }
+  const bs = 'padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.8rem';
+  cont.innerHTML = js.map(j => `<div style="border:1px solid var(--border);border-radius:10px;padding:9px;margin-bottom:8px">
+      <div style="font-weight:600">🗓️ Jornada del ${jornadaFechaLabel(j)}</div>
+      <div style="font-size:0.78rem;color:var(--muted);margin:2px 0">${j.nRms} RM${j.ini ? ' · ' + escapeHtmlJS(j.ini) : ''}</div>
+      <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
+        <button type="button" data-jact="cargar" data-jid="${j.id}" style="${bs}">↩️ Cargar</button>
+        <button type="button" data-jact="descargar" data-jid="${j.id}" style="${bs}">💾 Descargar</button>
+        <button type="button" data-jact="eliminar" data-jid="${j.id}" style="${bs};color:#e63946;border-color:#fecaca">🗑️</button>
+      </div>
+    </div>`).join('');
+  cont.querySelectorAll('button[data-jact]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.jid, act = b.dataset.jact;
+    if (act === 'cargar') jornadaCargar(id);
+    else if (act === 'descargar') jornadaDescargar(id);
+    else if (act === 'eliminar') jornadaEliminar(id);
+  }));
+}
 
 async function renderRMsList() {
   const list = document.getElementById('rms-list');
@@ -4052,18 +4177,39 @@ async function _dataURLToBlob(dataUrl) {
   const r = await fetch(dataUrl); return await r.blob();
 }
 // Arma el blob del respaldo (todas las RM + líneas, con fotos embebidas). Separado para poder probarlo.
-async function buildBackupBlob() {
-  const rms = await rmGetAll();
-  const lineas = await lineaGetAll();
-  const rmsSer = [];
+// Serializa RM (fotos → dataURL) para persistir/exportar. Deserializa con restoreRMs.
+async function serializeRMs(rms) {
+  const out = [];
   for (const r of rms) {
     const fotos = [];
     for (const f of (r.fotos || [])) {
       fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : null });
     }
-    rmsSer.push({ ...r, fotos });
+    out.push({ ...r, fotos });
   }
-  const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), rms: rmsSer, lineas };
+  return out;
+}
+// Reinserta RM serializadas en el store activo (fotos dataURL → blob). skipDup omite las de igual id.
+async function restoreRMs(rmsSer, skipDup) {
+  const existentes = skipDup ? new Set((await rmGetAll()).map(r => r.id)) : null;
+  let nuevas = 0, omitidas = 0;
+  for (const r of (rmsSer || [])) {
+    if (existentes && r.id && existentes.has(r.id)) { omitidas++; continue; }
+    const fotos = [];
+    for (const f of (r.fotos || [])) {
+      fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : null });
+    }
+    const rec = { ...r, fotos };
+    delete rec.key;   // deja que IndexedDB asigne una key nueva
+    await rmAdd(rec);
+    nuevas++;
+  }
+  return { nuevas, omitidas };
+}
+async function buildBackupBlob() {
+  const rms = await serializeRMs(await rmGetAll());
+  const lineas = await lineaGetAll();
+  const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), rms, lineas };
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
 }
 
@@ -4105,20 +4251,7 @@ async function importBackup(file) {
     const text = await file.text();
     const backup = JSON.parse(text);
     if (!backup || !Array.isArray(backup.rms)) throw new Error('El archivo no es un respaldo válido.');
-    const existentes = await rmGetAll();
-    const idsExistentes = new Set(existentes.map(r => r.id));
-    let nuevas = 0, omitidas = 0;
-    for (const r of backup.rms) {
-      if (r.id && idsExistentes.has(r.id)) { omitidas++; continue; }
-      const fotos = [];
-      for (const f of (r.fotos || [])) {
-        fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : null });
-      }
-      const rec = { ...r, fotos };
-      delete rec.key;   // deja que IndexedDB asigne una key nueva
-      await rmAdd(rec);
-      nuevas++;
-    }
+    const { nuevas, omitidas } = await restoreRMs(backup.rms, true);
     for (const l of (backup.lineas || [])) { try { await lineaPut(l); } catch {} }
     await refreshRMsCount();
     if (typeof renderRMsList === 'function') renderRMsList();
@@ -4140,6 +4273,7 @@ document.getElementById('entrega-compartir').addEventListener('click', entregaCo
 document.getElementById('entrega-descargar').addEventListener('click', entregaDescargar);
 document.getElementById('entrega-cerrar').addEventListener('click', () => { document.getElementById('entrega-modal').style.display = 'none'; });
 document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
+document.getElementById('btn-guardar-jornada').addEventListener('click', jornadaGuardar);
 
 // Tab bar Ficha ⇄ Mapa + botones de la vista de mapa
 document.querySelectorAll('.viewtab').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
