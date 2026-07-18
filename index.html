@@ -997,7 +997,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v46';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v47';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2454,8 +2454,10 @@ async function estacionMasCercana(lat, lon) {
   } catch (e) { console.warn('Estación más cercana:', e); return null; }
 }
 // Estima la lluvia acumulada 24 h/48 h/7 días en el punto GPS con Open-Meteo (modelo, CORS libre, sin token).
-// Acumula hasta la fecha/hora del evento si están; si no, hasta ahora. Siempre editable a mano.
-// Además muestra el nombre de la estación real más cercana (capa de Mapa) como referencia.
+// SIEMPRE acumula hasta AHORA (tiempo real): en terreno importa la lluvia que lleva caída al
+// momento de la inspección. (Antes cortaba en la "fecha de inicio" del evento del formulario
+// y los acumulados salían congelados en días previos — bug reportado con fecha 15-jul.)
+// Siempre editable a mano. Además muestra la estación real más cercana como referencia.
 async function estimarLluviaGPS() {
   const coords = getCoords();
   if (!coords) { alert('Marca la ubicación (GPS o en el mapa) antes de estimar la lluvia.'); return; }
@@ -2464,10 +2466,8 @@ async function estimarLluviaGPS() {
   const estacionEl = document.getElementById('lluvia-estacion');
   const txt0 = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Consultando…';
   try {
-    const fecha = document.getElementById('fecha-inicio')?.value;
-    const hora = document.getElementById('hora-inicio')?.value;
-    const end = fecha ? new Date(`${fecha}T${hora || '23:00'}:00`) : new Date();
-    const daysBack = Math.min(92, Math.max(8, Math.ceil((Date.now() - end.getTime()) / 86400000) + 8));
+    const end = new Date();          // tiempo real: hasta este momento
+    const daysBack = 8;              // ventana de 7 días + margen
     const u = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&hourly=precipitation&past_days=${daysBack}&forecast_days=1&timezone=auto`;
     const d = await (await fetch(u)).json();
     const t = d.hourly?.time || [], p = d.hourly?.precipitation || [];
@@ -2480,7 +2480,7 @@ async function estimarLluviaGPS() {
     document.getElementById('lluvia-48h').value = suma(48);
     document.getElementById('lluvia-7d').value = suma(24 * 7);
     const cuando = new Date(t[idx]).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    fuente.textContent = `Estimación Open-Meteo (modelo, en el punto GPS) hasta ${cuando}. Ajusta si tienes dato de estación.`;
+    fuente.textContent = `Estimación Open-Meteo (modelo, en el punto GPS) hasta ${cuando} — tiempo real. Ajusta si tienes dato de estación.`;
     if (estacionEl) {
       estacionEl.textContent = 'Buscando estación más cercana…';
       const cercana = await estacionMasCercana(coords.lat, coords.lng);
