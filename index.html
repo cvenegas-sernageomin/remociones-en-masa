@@ -997,7 +997,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v47';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v48';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2111,7 +2111,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 </table>
 <h3 style="color:#555;margin-top:12px">⚠️ Contexto de riesgo</h3>
 <table style="border-collapse:collapse;width:100%">
-  ${row('Amenaza activa', `<span style="${amenazaStyle}">${amenazaLabel}</span>`)}
+  ${data.amenaza ? `<tr><td style="color:#888;padding:4px 8px;white-space:nowrap"><b>Amenaza activa</b></td><td style="padding:4px 8px"><span style="${amenazaStyle}">${amenazaLabel}</span></td></tr>` : ''}
   ${row('Personas afectadas', data['personas-afectadas'] + (data['num-personas'] ? ` (${data['num-personas']})` : ''))}
   ${row('Infraestructura', data.infraestructura?.join(', '))}
   ${row('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
@@ -2157,7 +2157,7 @@ ${satelitalHTML}
     <styleUrl>#event-style</styleUrl>
     <description>${description}</description>
     <Point>
-      <coordinates>${coords.lon},${coords.lat},0</coordinates>
+      <coordinates>${coords.lng ?? coords.lon},${coords.lat},0</coordinates>
     </Point>
   </Placemark>
   ${groundOverlay}
@@ -3268,8 +3268,14 @@ async function generateRMId() {
   const t = todayStr();
   const ini = getIniciales();
   const prefix = ini ? `RM-${ini}-${t}` : `RM-${t}`;
-  const n = all.filter(r => (r.id || '').startsWith(prefix)).length + 1;
-  return `${prefix}-${String(n).padStart(2, '0')}`;
+  // max correlativo existente + 1 (no count+1: si se borró la 01 y queda la 02,
+  // count+1 daría de nuevo 02 y colisionaría)
+  let max = 0;
+  all.forEach(r => {
+    const m = new RegExp('^' + prefix + '-(\\d+)$').exec(r.id || '');
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return `${prefix}-${String(max + 1).padStart(2, '0')}`;
 }
 async function refreshRMsCount() {
   savedRMsCache = await rmGetAll();
@@ -3332,9 +3338,15 @@ async function buildRMRecord() {
 // juntos en UNA sola hoja = un correo con los 3 adjuntos, y funciona en PWA instalada en iOS.
 let _archivosRM = [];
 async function saveCurrentRM() {
-  if (!getCoords()) { alert('Marca la ubicación en el mapa antes de guardar la RM.'); return; }
+  // getCoords() NUNCA es null (el marcador parte en el centro de Santiago por defecto):
+  // hay que validar markerPlaced o la RM se guardaría silenciosamente en -33.45,-70.65.
+  if (!markerPlaced || !getCoords()) { alert('Marca la ubicación de la RM antes de finalizar (📍 GPS o arrastra el marcador en el mapa del Paso 1).'); return; }
   try {
     const rec = await buildRMRecord();
+    // Upsert por ID: si ya existe una RM con este id (reintento tras un error de generación,
+    // o una RM guardada que se abrió para editar), se reemplaza en vez de duplicarse.
+    const previas = (await rmGetAll()).filter(r => r.id === rec.id);
+    for (const p of previas) await rmDelete(p.key);
     await rmAdd(rec);
     await refreshRMsCount();
     const word = await generateRETERM(rec, true);
@@ -4113,6 +4125,7 @@ function toggleCriticos() {
     cargarCriticos();
   } else {
     mapaFull.off('moveend', pcOnMoveEnd);
+    clearTimeout(pcMoveTimer);
     mapaFull.removeLayer(pcLayer);
     pcBtnEstado('⚠️ P. Críticos', false);
   }
