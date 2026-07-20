@@ -931,6 +931,10 @@ body.map-mode #nav-buttons { display: none !important; }
       <small class="map-btn-src">SENAPRED</small>
     </span>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
+    <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-peligros" title="Mapas de peligro georreferenciados (SERNAGEOMIN) como capa; se descargan solo al activar">🗺️ Mapas</button>
+      <small class="map-btn-src">SERNAGEOMIN</small>
+    </span>
     <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
     <button class="map-btn" id="mapa-kmz" title="Cargar un KMZ o KML propio como capa del mapa">📂 KMZ</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
@@ -999,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v50';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v51';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4025,6 +4029,8 @@ function initMapaFull() {
   pronoLayer = L.layerGroup();
   pcCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });    // renderer canvas para puntos críticos (15.799)
   pcLayer = L.layerGroup();
+  mapaFull.createPane('peligros');                  // overlays de mapas de peligro: sobre las tiles, bajo los puntos RM
+  mapaFull.getPane('peligros').style.zIndex = 350;  // tilePane=200 < 350 < overlayPane=400
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
 }
@@ -4659,6 +4665,108 @@ function toggleMinutas() {
   }
 }
 
+// ---- Capa "Mapas de peligro" (overlays georreferenciados hosteados en GitHub) ----
+// Fetch on-demand del manifest + L.imageOverlay; los overlays (WebP con transparencia, ya
+// warpeados a plate-carrée) se bajan SOLO al activar la capa y NO se precachean en el SW,
+// así que no engordan la app. Panel con selector (si hay >1 mapa), opacidad y leyenda.
+const PEL_BASE = 'https://raw.githubusercontent.com/cvenegas-sernageomin/mapas-peligros-overlays/main/';
+let pelOn = false, pelData = null, pelOverlay = null, pelActivoId = null, pelOpacidad = 0.75, pelCtrl = null;
+
+function pelBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-peligros');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+async function cargarMapasPeligro() {
+  if (pelData) return pelData;
+  const r = await fetch(PEL_BASE + 'manifest.json', { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  pelData = (j.mapas || []).filter(m => m && m.bounds && m.overlay);
+  return pelData;
+}
+function mostrarMapaPeligro(id, fly) {
+  const m = (pelData || []).find(x => x.id === id);
+  if (!m || !mapaFull) return;
+  if (pelOverlay) { mapaFull.removeLayer(pelOverlay); pelOverlay = null; }
+  const b = m.bounds, bounds = [[b.s, b.w], [b.n, b.e]];
+  if (m.opacidad != null) pelOpacidad = m.opacidad;
+  pelOverlay = L.imageOverlay(PEL_BASE + m.overlay, bounds, { opacity: pelOpacidad, pane: 'peligros', interactive: false });
+  pelOverlay.addTo(mapaFull);
+  pelActivoId = id;
+  if (fly) mapaFull.flyToBounds(bounds, { padding: [20, 20], maxZoom: 11, duration: 0.8 });
+  if (pelCtrl) { if (pelCtrl._sel) pelCtrl._sel.value = pelActivoId; if (pelCtrl._rng) pelCtrl._rng.value = Math.round(pelOpacidad * 100); }
+}
+function pelCrearControl() {
+  const ctrl = L.control({ position: 'bottomleft' });
+  ctrl.onAdd = function () {
+    const d = L.DomUtil.create('div', 'pel-panel');
+    d.style.cssText = 'background:rgba(20,24,31,.92);color:#e8edf2;padding:8px 10px;border-radius:10px;font-size:.78rem;box-shadow:0 2px 8px rgba(0,0,0,.4);max-width:240px';
+    L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+    const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const multi = (pelData || []).length > 1;
+    let html = '<div style="font-weight:600;margin-bottom:6px">🗺️ Mapa de peligro</div>';
+    if (multi) {
+      html += '<select class="pel-sel" style="width:100%;margin-bottom:6px;padding:4px;border-radius:6px;background:#0d1117;color:#e8edf2;border:1px solid #30363d;font-size:.76rem">'
+        + pelData.map(m => `<option value="${esc(m.id)}">${esc(m.titulo || m.id)}</option>`).join('') + '</select>';
+    } else if ((pelData || [])[0]) {
+      html += `<div style="margin-bottom:6px;line-height:1.3;color:#c9d4de">${esc(pelData[0].titulo || '')}</div>`;
+    }
+    html += '<label style="display:flex;align-items:center;gap:6px;margin-bottom:6px">Opacidad'
+      + `<input class="pel-rng" type="range" min="0" max="100" value="${Math.round(pelOpacidad * 100)}" style="flex:1"></label>`;
+    html += '<button class="pel-leg" type="button" style="width:100%;padding:6px;background:#1f6feb;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer">ⓘ Ver leyenda</button>';
+    d.innerHTML = html;
+    const sel = d.querySelector('.pel-sel'), rng = d.querySelector('.pel-rng'), leg = d.querySelector('.pel-leg');
+    if (sel) { sel.value = pelActivoId || (pelData[0] && pelData[0].id) || ''; sel.addEventListener('change', () => mostrarMapaPeligro(sel.value, true)); }
+    rng.addEventListener('input', () => { pelOpacidad = rng.value / 100; if (pelOverlay) pelOverlay.setOpacity(pelOpacidad); });
+    leg.addEventListener('click', verLeyendaPeligro);
+    ctrl._sel = sel; ctrl._rng = rng;
+    return d;
+  };
+  return ctrl;
+}
+function verLeyendaPeligro() {
+  const m = (pelData || []).find(x => x.id === pelActivoId);
+  if (!m || !m.leyenda) { toastMapa('Este mapa no tiene leyenda separada'); return; }
+  const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.85);display:flex;flex-direction:column;padding:12px';
+  ov.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;color:#fff;margin-bottom:8px;gap:10px">`
+    + `<b style="font-size:.85rem">Leyenda — ${esc(m.titulo || '')}</b>`
+    + `<button type="button" style="padding:6px 12px;background:#e5534b;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;flex:0 0 auto">✕ Cerrar</button></div>`
+    + `<div style="flex:1;overflow:auto;background:#fff;border-radius:8px"><img src="${PEL_BASE + m.leyenda}" style="width:100%;display:block" alt="leyenda"></div>`;
+  ov.querySelector('button').addEventListener('click', () => ov.remove());
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+}
+async function togglePeligros() {
+  if (!mapaFull) return;
+  if (pelOn) {
+    pelOn = false;
+    if (pelOverlay) { mapaFull.removeLayer(pelOverlay); pelOverlay = null; }
+    if (pelCtrl) { mapaFull.removeControl(pelCtrl); pelCtrl = null; }
+    pelBtnEstado('🗺️ Mapas', false);
+    return;
+  }
+  pelOn = true;
+  pelBtnEstado('⏳ Mapas', true);
+  toastMapa('Cargando mapas de peligro…', 0);
+  try {
+    await cargarMapasPeligro();
+    if (!pelData.length) { toastMapa('No hay mapas disponibles'); pelOn = false; pelBtnEstado('🗺️ Mapas', false); return; }
+    pelCtrl = pelCrearControl(); pelCtrl.addTo(mapaFull);
+    mostrarMapaPeligro(pelActivoId || pelData[0].id, true);
+    pelBtnEstado('🗺️ Mapas', true);
+    toastMapa('🗺️ ' + pelData.length + ' mapa' + (pelData.length > 1 ? 's' : '') + ' de peligro');
+  } catch (err) {
+    console.warn('Mapas de peligro:', err);
+    toastMapa('⚠️ No se pudieron cargar los mapas (¿sin conexión?)');
+    pelOn = false; pelBtnEstado('🗺️ Mapas', false);
+    if (pelCtrl) { mapaFull.removeControl(pelCtrl); pelCtrl = null; }
+  }
+}
+
 // ---- Dibujo de líneas ----
 function iniciarDibujoLinea() {
   if (!mapaFull) return;
@@ -4864,6 +4972,7 @@ document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
 document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
+document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-kmz').addEventListener('click', onBotonKmz);
 document.getElementById('input-kmz-mapa').addEventListener('change', e => {
