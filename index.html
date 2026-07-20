@@ -932,8 +932,10 @@ body.map-mode #nav-buttons { display: none !important; }
     </span>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
+    <button class="map-btn" id="mapa-kmz" title="Cargar un KMZ o KML propio como capa del mapa">📂 KMZ</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
+    <input type="file" id="input-kmz-mapa" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml" style="display:none">
   </div>
 </div>
 
@@ -997,7 +999,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v48';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v49';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4131,6 +4133,211 @@ function toggleCriticos() {
   }
 }
 
+// ---- Capa KMZ/KML personal (subir un archivo propio al mapa) ----
+// Soporta: Placemark Point/LineString/Polygon/MultiGeometry (aplanando Folders), estilos
+// básicos (LineStyle/PolyStyle/IconStyle color), GroundOverlay (imagen del zip → blob URL)
+// e imágenes internas del KMZ referenciadas en las descripciones. Solo en memoria (se
+// pierde al recargar la app): es una capa de consulta, no un dato de la RM.
+let kmzLayer = null, kmzNombre = '', kmzVisible = false, kmzBlobUrls = [], kmzCanvas = null;
+function kmlColorToCss(kml) {
+  // KML usa aabbggrr en hex
+  const m = /^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec((kml || '').trim());
+  if (!m) return null;
+  return { color: '#' + m[4] + m[3] + m[2], opacity: parseInt(m[1], 16) / 255 };
+}
+function kmzBtnEstado() {
+  const b = document.getElementById('mapa-kmz');
+  if (!b) return;
+  b.textContent = kmzNombre ? '📂 ' + (kmzVisible ? 'KMZ ✓' : 'KMZ ○') : '📂 KMZ';
+  b.classList.toggle('active', !!(kmzNombre && kmzVisible));
+}
+function kmzLimpiar() {
+  if (kmzLayer && mapaFull) mapaFull.removeLayer(kmzLayer);
+  kmzLayer = null; kmzNombre = ''; kmzVisible = false;
+  kmzBlobUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} });
+  kmzBlobUrls = [];
+  kmzBtnEstado();
+}
+// Parsea "lon,lat[,alt] lon,lat[,alt] ..." → [[lat,lng], ...]
+function kmzParseCoords(txt) {
+  return (txt || '').trim().split(/\s+/).map(par => {
+    const p = par.split(',');
+    const lon = parseFloat(p[0]), lat = parseFloat(p[1]);
+    return (isFinite(lat) && isFinite(lon)) ? [lat, lon] : null;
+  }).filter(Boolean);
+}
+async function cargarKmzArchivo(file) {
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Leyendo ' + file.name + '…';
+  const urlsNuevas = [];   // blob URLs de ESTE archivo; solo pasan a kmzBlobUrls si la carga resulta
+  try {
+    let kmlText = null; const archivos = {};   // ruta interna → blob URL (imágenes del kmz)
+    if (/\.kml$/i.test(file.name)) {
+      kmlText = await file.text();
+    } else {
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      const kmlEntry = zip.file(/(^|\/)doc\.kml$/i)[0] || zip.file(/\.kml$/i)[0];
+      if (!kmlEntry) throw new Error('El KMZ no contiene ningún archivo .kml.');
+      kmlText = await kmlEntry.async('string');
+      const imgs = zip.file(/\.(png|jpe?g|gif|webp)$/i);
+      for (const f of imgs) {
+        const blob = await f.async('blob');
+        const url = URL.createObjectURL(blob);
+        archivos[f.name] = url; archivos[f.name.split('/').pop()] = url;
+        urlsNuevas.push(url);
+      }
+    }
+    const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
+    if (doc.querySelector('parsererror')) throw new Error('El KML no es un XML válido.');
+
+    // Estilos: <Style id> directos + <StyleMap> (se toma el par "normal")
+    const estilos = {};
+    doc.querySelectorAll('Style[id]').forEach(s => { estilos['#' + s.getAttribute('id')] = s; });
+    doc.querySelectorAll('StyleMap[id]').forEach(sm => {
+      const pair = Array.from(sm.querySelectorAll('Pair')).find(p => p.querySelector('key')?.textContent.trim() === 'normal');
+      const url = pair?.querySelector('styleUrl')?.textContent.trim();
+      if (url && estilos[url]) estilos['#' + sm.getAttribute('id')] = estilos[url];
+    });
+    const estiloDe = pm => {
+      const inline = pm.querySelector(':scope > Style');
+      if (inline) return inline;
+      const url = pm.querySelector(':scope > styleUrl')?.textContent.trim();
+      return (url && estilos[url]) || null;
+    };
+    const texto = (el, sel) => el?.querySelector(sel)?.textContent?.trim() || '';
+
+    // Descripción → popup: reescribir <img src> internos a blob URLs y quitar scripts
+    const descHtml = d => {
+      if (!d) return '';
+      let h = d.replace(/<script[\s\S]*?<\/script>/gi, '');
+      h = h.replace(/src=["']([^"']+)["']/gi, (m0, src) => {
+        if (/^(https?:|data:|blob:)/i.test(src)) return m0;
+        const clave = decodeURIComponent(src.replace(/^\.\//, ''));
+        const u = archivos[clave] || archivos[clave.split('/').pop()];
+        return u ? `src="${u}"` : m0;
+      });
+      return h;
+    };
+
+    kmzCanvas = kmzCanvas || L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });
+    const capa = L.layerGroup();
+    const bounds = [];
+    let nPts = 0, nLineas = 0, nPoly = 0, nOverlays = 0;
+
+    const renderGeom = (geomEl, nombre, popup, st) => {
+      const tag = geomEl.tagName;
+      if (tag === 'MultiGeometry') {
+        Array.from(geomEl.children).forEach(g => renderGeom(g, nombre, popup, st));
+        return;
+      }
+      if (tag === 'Point') {
+        const c = kmzParseCoords(texto(geomEl, 'coordinates'))[0];
+        if (!c) return;
+        const icaz = kmlColorToCss(texto(st, 'IconStyle color'));
+        const mk = L.circleMarker(c, {
+          renderer: kmzCanvas, radius: 6 + EST_RADIO_EXTRA,
+          color: '#fff', weight: 1.5, fillColor: (icaz && icaz.color) || '#8b5cf6', fillOpacity: 0.95
+        });
+        if (popup) mk.bindPopup(popup, { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+        else if (nombre) mk.bindTooltip(nombre);
+        capa.addLayer(mk); bounds.push(c); nPts++;
+      } else if (tag === 'LineString' || tag === 'LinearRing') {
+        const cs = kmzParseCoords(texto(geomEl, 'coordinates'));
+        if (cs.length < 2) return;
+        const lc = kmlColorToCss(texto(st, 'LineStyle color'));
+        const lw = parseFloat(texto(st, 'LineStyle width')) || 3;
+        const pl = L.polyline(cs, { renderer: kmzCanvas, color: (lc && lc.color) || '#8b5cf6', opacity: lc ? Math.max(0.4, lc.opacity) : 0.9, weight: lw });
+        if (popup) pl.bindPopup(popup, { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+        capa.addLayer(pl); cs.forEach(c => bounds.push(c)); nLineas++;
+      } else if (tag === 'Polygon') {
+        const outer = geomEl.querySelector('outerBoundaryIs coordinates') || geomEl.querySelector('coordinates');
+        const cs = kmzParseCoords(outer?.textContent);
+        if (cs.length < 3) return;
+        const lc = kmlColorToCss(texto(st, 'LineStyle color'));
+        const fc = kmlColorToCss(texto(st, 'PolyStyle color'));
+        const pg = L.polygon(cs, {
+          renderer: kmzCanvas, color: (lc && lc.color) || '#8b5cf6', weight: parseFloat(texto(st, 'LineStyle width')) || 2,
+          fillColor: (fc && fc.color) || (lc && lc.color) || '#8b5cf6', fillOpacity: fc ? Math.min(0.6, fc.opacity) : 0.25
+        });
+        if (popup) pg.bindPopup(popup, { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+        capa.addLayer(pg); cs.forEach(c => bounds.push(c)); nPoly++;
+      }
+    };
+
+    doc.querySelectorAll('Placemark').forEach(pm => {
+      const nombre = texto(pm, ':scope > name');
+      const desc = descHtml(texto(pm, ':scope > description'));
+      const popup = (nombre || desc) ? `<b>${escapeHtmlJS(nombre)}</b>${desc ? '<br/>' + desc : ''}` : '';
+      const st = estiloDe(pm);
+      const geom = pm.querySelector(':scope > Point, :scope > LineString, :scope > Polygon, :scope > MultiGeometry');
+      if (geom) renderGeom(geom, nombre, popup, st);
+    });
+    doc.querySelectorAll('GroundOverlay').forEach(go => {
+      const href = texto(go, 'Icon href');
+      const n = parseFloat(texto(go, 'LatLonBox north')), s = parseFloat(texto(go, 'LatLonBox south'));
+      const e = parseFloat(texto(go, 'LatLonBox east')), w = parseFloat(texto(go, 'LatLonBox west'));
+      if (![n, s, e, w].every(isFinite)) return;
+      const u = /^(https?:|data:|blob:)/i.test(href) ? href : (archivos[href] || archivos[href.split('/').pop()]);
+      if (!u) return;
+      capa.addLayer(L.imageOverlay(u, [[s, w], [n, e]], { opacity: 0.8 }));
+      bounds.push([s, w], [n, e]); nOverlays++;
+    });
+
+    if (!bounds.length) throw new Error('El archivo no contiene geometrías reconocibles (puntos, líneas, polígonos u overlays).');
+
+    // Éxito: recién ahora se reemplaza la capa anterior (y se liberan sus blob URLs)
+    kmzLimpiarSoloCapa();
+    kmzBlobUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} });
+    kmzBlobUrls = urlsNuevas;
+    kmzLayer = capa; kmzNombre = file.name; kmzVisible = true;
+    capa.addTo(mapaFull);
+    mapaFull.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+    kmzBtnEstado();
+    const partes = [];
+    if (nPts) partes.push(nPts + ' puntos'); if (nLineas) partes.push(nLineas + ' líneas');
+    if (nPoly) partes.push(nPoly + ' polígonos'); if (nOverlays) partes.push(nOverlays + ' imágenes');
+    toastMapa('📂 ' + file.name + ' · ' + partes.join(' · '));
+  } catch (e) {
+    console.warn('KMZ personal:', e);
+    // Falla: liberar solo lo de este intento; la capa anterior (si había) queda intacta
+    urlsNuevas.forEach(u => { try { URL.revokeObjectURL(u); } catch {} });
+    alert('No se pudo cargar el archivo: ' + e.message);
+  } finally { loading.classList.remove('open'); }
+}
+// Quita la capa anterior del mapa sin resetear el estado del botón (para reemplazar)
+function kmzLimpiarSoloCapa() {
+  if (kmzLayer && mapaFull) mapaFull.removeLayer(kmzLayer);
+  kmzLayer = null;
+}
+function kmzMenu() {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px';
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg,#111);color:var(--fg,#eee);border-radius:12px;padding:16px;max-width:340px;width:100%;border:1px solid var(--border,#333)';
+  const bs = 'width:100%;padding:11px;margin-bottom:8px;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;color:#fff';
+  box.innerHTML = `<h3 style="margin:0 0 4px">📂 Capa KMZ personal</h3>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0 0 12px;word-break:break-word">${escapeHtmlJS(kmzNombre)}</p>
+    <button id="kz-toggle" style="${bs}background:#1a5fb4">${kmzVisible ? '🙈 Ocultar del mapa' : '👁️ Mostrar en el mapa'}</button>
+    <button id="kz-otro" style="${bs}background:#16a34a">📂 Cargar otro archivo</button>
+    <button id="kz-quitar" style="${bs}background:#c0392b">🗑️ Quitar la capa</button>
+    <button id="kz-cerrar" style="width:100%;padding:8px;background:none;border:none;color:var(--muted);font-size:0.82rem;cursor:pointer">Cerrar</button>`;
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#kz-toggle').onclick = () => {
+    kmzVisible = !kmzVisible;
+    if (kmzVisible) kmzLayer.addTo(mapaFull); else mapaFull.removeLayer(kmzLayer);
+    kmzBtnEstado(); ov.remove();
+  };
+  box.querySelector('#kz-otro').onclick = () => { ov.remove(); document.getElementById('input-kmz-mapa').click(); };
+  box.querySelector('#kz-quitar').onclick = () => { kmzLimpiar(); ov.remove(); toastMapa('Capa KMZ quitada.'); };
+  box.querySelector('#kz-cerrar').onclick = () => ov.remove();
+}
+function onBotonKmz() {
+  if (!mapaFull) return;
+  if (kmzLayer) kmzMenu();
+  else document.getElementById('input-kmz-mapa').click();
+}
+
 // ---- Minutas Técnicas ATG Flash (capa oficial SERNAGEOMIN) ----
 // El campo Tipo viene en texto libre (81 variantes); se agrupa por palabra clave para el color.
 function minFamiliaColor(t) {
@@ -4472,6 +4679,11 @@ document.getElementById('mapa-estaciones').addEventListener('click', toggleEstac
 document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
+document.getElementById('mapa-kmz').addEventListener('click', onBotonKmz);
+document.getElementById('input-kmz-mapa').addEventListener('change', e => {
+  if (e.target.files[0]) cargarKmzArchivo(e.target.files[0]);
+  e.target.value = '';
+});
 document.getElementById('mapa-legend').addEventListener('click', legendaMapa);
 document.getElementById('app-ver').textContent = APP_VER;
 
