@@ -1003,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v55';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v56';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1477,6 +1477,7 @@ function addFotoItem(existing) {
     if (existing.desc) descInput.value = existing.desc;
     if (existing.azimuth != null) { azInput.value = existing.azimuth; azDir.textContent = cardinalDir(existing.azimuth); }
     if (existing.blob) { preview.src = URL.createObjectURL(existing.blob); preview.classList.add('loaded'); }
+    else if (existing.blobDataUrl) { preview.src = existing.blobDataUrl; preview.classList.add('loaded'); }
   }
 
   azInput.addEventListener('input', () => {
@@ -1516,6 +1517,7 @@ function addFotoItem(existing) {
     if (!file) return;
     const compressed = await compressImage(file, 1024);
     fotosData[idx].blob = compressed;
+    fotosData[idx].blobDataUrl = null;   // el dataURL guardado (si venía de una RM cargada) ya no corresponde
     preview.src = URL.createObjectURL(compressed);
     preview.classList.add('loaded');
   });
@@ -2310,10 +2312,11 @@ async function generateKMZ(record, ret) {
 
     const fotoEntries = [];
     for (let i = 0; i < fotos.length; i++) {
-      if (fotos[i].blob) {
+      if (fotos[i].blob || fotos[i].blobDataUrl) {
         const fname = `foto_${i + 1}.jpg`;
         fotoEntries.push({ fname, desc: fotos[i].desc || '', azimuth: fotos[i].azimuth ?? null });
-        zip.file(fname, fotos[i].blob);
+        if (fotos[i].blob) zip.file(fname, fotos[i].blob);
+        else zip.file(fname, fotos[i].blobDataUrl.split(',')[1], { base64: true });
       }
     }
 
@@ -2981,10 +2984,12 @@ async function generateRETERM(record, ret) {
   loading.classList.add('open'); lmsg.textContent = 'Generando informe RETERM...';
 
   try {
-    // Fotos → base64
-    const b64Fotos = await Promise.all(fotos.map(f => f.blob
-      ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); })
-      : Promise.resolve(null)));
+    // Fotos → base64 (fast-path: las RM guardadas ya traen blobDataUrl, no reconvertir)
+    const b64Fotos = await Promise.all(fotos.map(f => f.blobDataUrl
+      ? Promise.resolve(f.blobDataUrl)
+      : (f.blob
+        ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); })
+        : Promise.resolve(null))));
 
     // Figura A: usa la guardada; si no hay y estamos en vivo, la captura
     let figuraA = data.figuraA || null;
@@ -3259,7 +3264,7 @@ async function generateRETERM(record, ret) {
     const fullRow = (c) => wTr(wC(c, { w: FULL, span: 2 }));
 
     const obsXml = obsPartes.map((p, i) => wP(wR((i + 1) + '. ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
-    const nFotosOk = fotos.filter(f => f.blob).length;
+    const nFotosOk = fotos.filter(f => f.blob || f.blobDataUrl).length;
     const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
     const concluXml = concluParts.map(p => wP(wR('• ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('')
       + wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
@@ -3401,16 +3406,19 @@ async function lineaDelete(id) {
 // to be stored in object store". Guardar como string evita ese codepath por completo. El resto
 // del código sigue trabajando con Blobs reales en memoria (rmAdd convierte al guardar, rmGetAll
 // reconvierte al leer) — helpers `_blobToDataURL`/`_dataURLToBlob` reutilizados del respaldo JSON.
+// Preferir el blobDataUrl ya existente evita reconvertir fotos que no cambiaron (el handler
+// de cambio de foto limpia blobDataUrl al reemplazar, así nunca queda uno obsoleto).
 async function _fotosParaGuardar(fotos) {
   if (!fotos || !fotos.length) return fotos;
   const out = [];
-  for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : (f.blobDataUrl || null) });
+  for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blobDataUrl: f.blobDataUrl || (f.blob ? await _blobToDataURL(f.blob) : null) });
   return out;
 }
+// Devuelve blob (para KMZ/preview) Y conserva blobDataUrl (para RETERM/respaldo sin reconvertir).
 async function _fotosDesdeGuardado(fotos) {
   if (!fotos || !fotos.length) return fotos;
   const out = [];
-  for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : (f.blob || null) });
+  for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blobDataUrl: f.blobDataUrl || null, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : (f.blob || null) });
   return out;
 }
 async function rmGetAll() {
@@ -3532,7 +3540,7 @@ async function buildRMRecord() {
   const data = { ...collectFormData(), geotiffBounds, figuraA };
   const fotos = fotosData
     .filter(f => f.blob || f.desc || f.azimuth != null)
-    .map(f => ({ blob: f.blob, desc: f.desc, azimuth: f.azimuth }));
+    .map(f => ({ blob: f.blob, blobDataUrl: f.blobDataUrl || null, desc: f.desc, azimuth: f.azimuth }));
 
   return {
     id: data.id || await generateRMId(),
@@ -3557,9 +3565,12 @@ async function saveCurrentRM() {
     const rec = await buildRMRecord();
     // Upsert por ID: si ya existe una RM con este id (reintento tras un error de generación,
     // o una RM guardada que se abrió para editar), se reemplaza en vez de duplicarse.
+    // ORDEN IMPORTANTE: primero agregar la nueva y SOLO SI eso resultó, borrar las previas.
+    // Al revés (borrar→agregar), un fallo de rmAdd (p.ej. IndexedDB en Safari iOS) perdía
+    // también la versión anterior guardada.
     const previas = (await rmGetAll()).filter(r => r.id === rec.id);
-    for (const p of previas) await rmDelete(p.key);
-    await rmAdd(rec);
+    const nuevaKey = await rmAdd(rec);
+    for (const p of previas) { if (p.key !== nuevaKey) await rmDelete(p.key); }
     await refreshRMsCount();
     const word = await generateRETERM(rec, true);
     const kmz = await generateKMZ(rec, true);
@@ -4946,22 +4957,21 @@ async function serializeRMs(rms) {
   for (const r of rms) {
     const fotos = [];
     for (const f of (r.fotos || [])) {
-      fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : null });
+      // fast-path: las RM leídas de IndexedDB ya traen blobDataUrl — evita reconvertir Blob→dataURL
+      fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blobDataUrl || (f.blob ? await _blobToDataURL(f.blob) : null) });
     }
     out.push({ ...r, fotos });
   }
   return out;
 }
-// Reinserta RM serializadas en el store activo (fotos dataURL → blob). skipDup omite las de igual id.
+// Reinserta RM serializadas en el store activo. skipDup omite las de igual id.
+// Las fotos van directo como blobDataUrl (el formato que persiste rmAdd): sin conversión a Blob.
 async function restoreRMs(rmsSer, skipDup) {
   const existentes = skipDup ? new Set((await rmGetAll()).map(r => r.id)) : null;
   let nuevas = 0, omitidas = 0;
   for (const r of (rmsSer || [])) {
     if (existentes && r.id && existentes.has(r.id)) { omitidas++; continue; }
-    const fotos = [];
-    for (const f of (r.fotos || [])) {
-      fotos.push({ desc: f.desc || '', azimuth: f.azimuth ?? null, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : null });
-    }
+    const fotos = (r.fotos || []).map(f => ({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blobDataUrl || null }));
     const rec = { ...r, fotos };
     delete rec.key;   // deja que IndexedDB asigne una key nueva
     await rmAdd(rec);
