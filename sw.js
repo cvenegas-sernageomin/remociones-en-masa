@@ -1,9 +1,10 @@
-const CACHE_NAME = 'remociones-v59';
+const CACHE_NAME = 'remociones-v63';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './puntos_criticos.json',
+  './emergencias_temporal.json',
   './vendor/idb.js',
   './vendor/leaflet.offline.js',
   './vendor/reterm-logo.png',

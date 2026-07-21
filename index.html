@@ -829,16 +829,28 @@ body.map-mode #nav-buttons { display: none !important; }
 
   <div class="field">
     <label>Recomendaciones <button class="help-btn" data-help="recomendaciones">?</button></label>
-    <div class="chips-group" id="recom-chips">
-      <button type="button" class="chip" data-val="Se recomienda evacuar a las personas que habiten en la vivienda o predio directamente afectado, dado el riesgo para su integridad.">Evacuar habitantes</button>
-      <button type="button" class="chip" data-val="Se recomienda restringir y señalizar el acceso al sector afectado mientras se mantengan las condiciones de inestabilidad.">Restringir acceso al sector</button>
-      <button type="button" class="chip" data-val="Se requiere la implementación de medidas de mitigación y/o obras de contención en el talud o ladera afectada.">Medidas de mitigación requeridas</button>
-      <button type="button" class="chip" data-val="Se recomienda implementar un sistema de encauzamiento y canalización de aguas lluvias para evitar la saturación e infiltración en el talud.">Canalizar aguas lluvias</button>
-      <button type="button" class="chip" data-val="Se recomienda retirar de manera cuidadosa y controlada el material depositado, evitando desestabilizar los sectores adyacentes.">Retirar material depositado</button>
-      <button type="button" class="chip" data-val="Se recomienda realizar inspecciones periódicas del sector para monitorear la evolución del proceso, con mayor frecuencia ante eventos de lluvia o sismos.">Inspecciones periódicas</button>
-      <button type="button" class="chip" data-val="Se recomienda evaluar la reubicación de la infraestructura o vivienda expuesta ante la persistencia del riesgo.">Evaluar reubicación</button>
-      <button type="button" class="chip" data-val="Se recomienda informar oportunamente a las autoridades y organismos competentes ante cualquier variación relevante en las condiciones del sitio.">Informar ante cambios</button>
-    </div>
+    <select id="recom-select" style="margin-bottom:8px">
+      <option value="" selected disabled>+ Agregar recomendación…</option>
+      <optgroup label="Corto plazo (durante la emergencia y hasta 3 meses)">
+        <option value="Se recomienda mantener o establecer perímetros de seguridad alrededor de la remoción, socavones, grietas y taludes inestables.">Mantener o establecer perímetros de seguridad</option>
+        <option value="Se recomienda evacuar preventivamente las viviendas ubicadas en sectores con peligro alto de colapso, flujos, inundación o caída de rocas.">Evacuar preventivamente viviendas en riesgo</option>
+        <option value="Se recomienda restringir el acceso a quebradas, abanicos, cauces y sectores inestables mientras persistan precipitaciones o señales de actividad.">Restringir acceso a quebradas y cauces</option>
+        <option value="Se recomienda instalar señalización provisoria que advierta el peligro de flujos, caídas de roca, deslizamientos o inundaciones.">Instalar señalización provisoria</option>
+        <option value="Se recomienda a la municipalidad monitorear grietas, escarpes, deformaciones y otros indicadores de reactivación de la remoción.">Monitorear grietas y deformaciones (municipalidad)</option>
+        <option value="Se recomienda realizar una inspección técnica del sector afectado antes de modificar o levantar los perímetros de seguridad.">Inspección técnica antes de levantar perímetros</option>
+        <option value="Se recomienda a Vialidad limpiar los caminos alcanzados por la remoción, revisando previamente la estabilidad de los taludes.">Limpiar caminos afectados (Vialidad)</option>
+        <option value="Se recomienda a la DOH limpiar los cauces afectados por flujos de detritos o hiperconcentrados, cuando existan condiciones seguras.">Limpiar cauces afectados (DOH)</option>
+        <option value="Se recomienda al MOP revisar puentes y tramos de ruta erosionados o afectados por flujos antes de restablecer el tránsito.">Revisar puentes y rutas antes de reabrir (MOP)</option>
+        <option value="Se recomienda revisar y reparar con urgencia las mallas dinámicas, barreras y anclajes erosionados durante el evento.">Reparar mallas, barreras y anclajes</option>
+      </optgroup>
+      <optgroup label="Mediano plazo (3 meses a 2 años)">
+        <option value="Se recomienda definir y señalizar zonas de evacuación y puntos seguros, sustentados en estudios de detalle.">Definir y señalizar zonas de evacuación</option>
+        <option value="Se recomienda instalar señalización permanente de peligro en caminos, quebradas, badenes y sectores turísticos.">Instalar señalización permanente</option>
+        <option value="Se recomienda ampliar las medidas de mitigación en taludes y tramos viales críticos con recurrencia de caídas o deslizamientos.">Ampliar mitigación en taludes críticos</option>
+        <option value="Se recomienda evaluar la reubicación de viviendas emplazadas en cauces o zonas de descarga, o implementar medidas de reducción del riesgo técnicamente justificadas.">Evaluar reubicación de viviendas</option>
+      </optgroup>
+    </select>
+    <div class="chips-group" id="recom-chips"></div>
     <p style="font-size:0.75rem;color:var(--muted);margin:6px 0 4px">Otras recomendaciones (una por viñeta · Enter agrega otra)</p>
     <textarea id="recom-libre" placeholder="• Recomendación específica para este caso&#10;• Otra recomendación…"></textarea>
   </div>
@@ -927,9 +939,10 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn map-btn-sm" id="mapa-tiles" title="Descargar tiles del mapa para uso sin conexión" aria-label="Descargar tiles">⬇️</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
     <span class="map-btn-stack">
-      <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): 15.799 puntos de riesgo por precipitación">⚠️ P. Críticos</button>
+      <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): riesgo por precipitación, Atacama/Coquimbo/Valparaíso">⚠️ P. Críticos</button>
       <small class="map-btn-src">SENAPRED</small>
     </span>
+    <button class="map-btn" id="mapa-temporal" title="Emergencias activas por el temporal de jul-2026 (MOP): Atacama, Coquimbo y Valparaíso">🌊 Emergencia (MOP)</button>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <span class="map-btn-stack">
       <button class="map-btn" id="mapa-peligros" title="Mapas de peligro georreferenciados (SERNAGEOMIN) como capa; se descargan solo al activar">🗺️ Mapas</button>
@@ -1003,7 +1016,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v59';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v63';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1083,6 +1096,25 @@ document.querySelectorAll('.chip').forEach(chip => {
 function getChipsValues(groupId) {
   return Array.from(document.querySelectorAll(`#${groupId} .chip.selected`)).map(c => c.dataset.val);
 }
+
+// Recomendaciones: chips generados desde el <select>, se quitan al hacer click
+function addRecomChip(value, label) {
+  const group = document.getElementById('recom-chips');
+  if (!group || !value || group.querySelector(`.chip[data-val="${CSS.escape(value)}"]`)) return;
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'chip selected';
+  chip.dataset.val = value;
+  chip.textContent = label;
+  chip.title = 'Click para quitar';
+  chip.addEventListener('click', () => chip.remove());
+  group.appendChild(chip);
+}
+document.getElementById('recom-select')?.addEventListener('change', (e) => {
+  const opt = e.target.selectedOptions[0];
+  if (opt && opt.value) addRecomChip(opt.value, opt.textContent);
+  e.target.value = '';
+});
 
 // =====================
 // CONDICIONALES FORMULARIO
@@ -3517,10 +3549,24 @@ function clearToggle(groupId) {
   document.querySelectorAll(`#${groupId} .toggle-btn`).forEach(b => b.classList.remove('active'));
 }
 function setChips(groupId, vals) {
+  if (groupId === 'recom-chips') {
+    const group = document.getElementById('recom-chips');
+    if (group) group.innerHTML = '';
+    (vals || []).forEach(v => {
+      const opt = document.querySelector(`#recom-select option[value="${CSS.escape(v)}"]`);
+      addRecomChip(v, opt ? opt.textContent : v);
+    });
+    return;
+  }
   const set = new Set(vals || []);
   document.querySelectorAll(`#${groupId} .chip`).forEach(c => c.classList.toggle('selected', set.has(c.dataset.val)));
 }
 function clearChips(groupId) {
+  if (groupId === 'recom-chips') {
+    const group = document.getElementById('recom-chips');
+    if (group) group.innerHTML = '';
+    return;
+  }
   document.querySelectorAll(`#${groupId} .chip`).forEach(c => c.classList.remove('selected'));
 }
 function setEl(id, val) {
@@ -4069,6 +4115,8 @@ function initMapaFull() {
   pronoLayer = L.layerGroup();
   pcCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });    // renderer canvas para puntos críticos (15.799)
   pcLayer = L.layerGroup();
+  tempCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para emergencias del temporal (MOP)
+  tempLayer = L.layerGroup();
   mapaFull.createPane('peligros');                  // overlays de mapas de peligro: sobre las tiles, bajo los puntos RM
   mapaFull.getPane('peligros').style.zIndex = 350;  // tilePane=200 < 350 < overlayPane=400
   mapaFull.on('click', onMapaFullClick);
@@ -4264,8 +4312,8 @@ function toggleEstaciones() {
 
 // ---- Puntos Críticos INV 2026 (SENAPRED) ----
 // Snapshot de la capa oficial ArcGIS `compilado_INV_2026` de SENAPRED (geoportalonemi),
-// 15.799 puntos de riesgo por precipitación para el invierno 2026, traído de la fuente y
-// guardado como asset local (puntos_criticos.json, ~1.7 MB / ~320 KB gzip) para uso offline.
+// filtrado a Atacama, Coquimbo y Valparaíso (4.359 puntos) por el temporal iniciado el
+// jueves 16-jul-2026, guardado como asset local (puntos_criticos.json) para uso offline.
 // Estructura compacta: campos codificados con diccionarios (niveles/causas/tipos/regiones).
 // Se pinta con canvas + tolerancia táctil, igual que estaciones/minutas.
 let pcLayer = null, pcCanvas = null, pcOn = false, pcData = null, pcCargando = false;
@@ -4362,6 +4410,93 @@ function toggleCriticos() {
     clearTimeout(pcMoveTimer);
     mapaFull.removeLayer(pcLayer);
     pcBtnEstado('⚠️ P. Críticos', false);
+  }
+}
+
+// ---- Emergencias Temporal Jul-2026 (MOP) ----
+// Eventos de emergencia vial/infraestructura del visor oficial `ide.mop.gob.cl/Emergencias`,
+// filtrados a Atacama, Coquimbo y Valparaíso (255 puntos) por el sistema frontal iniciado el
+// jueves 16-jul-2026. Exportado en GeoJSON por región desde el visor y compactado a
+// emergencias_temporal.json (mismo patrón de diccionarios que Puntos Críticos).
+let tempLayer = null, tempCanvas = null, tempOn = false, tempData = null, tempCargando = false;
+const TEMP_URL = 'emergencias_temporal.json';
+const TEMP_COLOR = { 'Muy Grave': '#7e22ce', 'Grave': '#dc2626', 'Moderado': '#f59e0b', 'Leve': '#16a34a' };
+const TEMP_RADIO = { 'Muy Grave': 6, 'Grave': 5, 'Moderado': 4, 'Leve': 4 };
+function tempBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-temporal');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+function renderTemporal() {
+  if (!tempLayer || !tempData) return;
+  tempLayer.clearLayers();
+  const { gravedades, operatividades, direcciones, regiones, puntos } = tempData;
+  const b = mapaFull.getBounds().pad(0.25);
+  const s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
+  puntos.forEach(p => {
+    const [lon, lat, gi, oi, di, ri, emergencia, infra, rolVial, estado, fechaMs] = p;
+    if (lat < s || lat > n || lon < w || lon > e) return;
+    const gravedad = gravedades[gi] || 'Sin info';
+    const color = TEMP_COLOR[gravedad] || '#dc2626';
+    const cm = L.circleMarker([lat, lon], {
+      renderer: tempCanvas, radius: (TEMP_RADIO[gravedad] || 4) + EST_RADIO_EXTRA,
+      color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9
+    });
+    const operatividad = operatividades[oi] || '—', direccion = direcciones[di] || '—', region = regiones[ri] || '—';
+    const fecha = fechaMs ? new Date(fechaMs).toLocaleDateString('es-CL') : '—';
+    cm.bindPopup(
+      '<b>🌊 Emergencia ' + esc2(gravedad) + '</b><br/>' +
+      '<b>' + esc2(emergencia || 'Sin descripción') + '</b><br/>' +
+      esc2(infra || '') + (rolVial ? ' · ' + esc2(rolVial) : '') + '<br/>' +
+      esc2(region) + ' · <b>Operatividad:</b> ' + esc2(operatividad) + '<br/>' +
+      '<b>Servicio:</b> ' + esc2(direccion) + ' · <b>Estado:</b> ' + esc2(estado) + ' · ' + fecha +
+      '<hr style="margin:6px 0"/><small style="color:#8a94a3">Fuente: MOP · Temporal jul-2026</small>',
+      { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+    tempLayer.addLayer(cm);
+  });
+}
+let tempMoveTimer = null;
+function tempOnMoveEnd() {
+  if (!tempOn || !tempData) return;
+  clearTimeout(tempMoveTimer);
+  tempMoveTimer = setTimeout(renderTemporal, 200);
+}
+async function cargarTemporal() {
+  if (tempCargando) return;
+  if (tempData) { renderTemporal(); return; }
+  tempCargando = true;
+  tempBtnEstado('⏳ Emergencia (MOP)', true);
+  toastMapa('Cargando emergencias del temporal…', 0);
+  try {
+    const resp = await fetch(TEMP_URL, { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    tempData = await resp.json();
+    renderTemporal();
+    toastMapa('🌊 ' + tempData.n.toLocaleString('es-CL') + ' emergencias MOP (temporal jul-2026, Atacama/Coquimbo/Valparaíso).');
+  } catch (err) {
+    console.warn('Emergencias temporal:', err);
+    toastMapa('⚠️ No se pudieron cargar las emergencias del temporal (¿sin conexión la 1ª vez?)');
+    tempOn = false;
+    if (tempLayer) mapaFull.removeLayer(tempLayer);
+  } finally {
+    tempCargando = false;
+    tempBtnEstado('🌊 Emergencia (MOP)', tempOn);
+  }
+}
+function toggleTemporal() {
+  if (!mapaFull) return;
+  tempOn = !tempOn;
+  if (tempOn) {
+    tempLayer.addTo(mapaFull);
+    tempBtnEstado('⏳ Emergencia (MOP)', true);
+    mapaFull.on('moveend', tempOnMoveEnd);
+    cargarTemporal();
+  } else {
+    mapaFull.off('moveend', tempOnMoveEnd);
+    clearTimeout(tempMoveTimer);
+    mapaFull.removeLayer(tempLayer);
+    tempBtnEstado('🌊 Emergencia (MOP)', false);
   }
 }
 
@@ -5161,6 +5296,7 @@ document.getElementById('mapa-linea').addEventListener('click', iniciarDibujoLin
 document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
 document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
+document.getElementById('mapa-temporal').addEventListener('click', toggleTemporal);
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
 document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
