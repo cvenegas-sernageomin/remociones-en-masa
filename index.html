@@ -893,26 +893,26 @@ body.map-mode #nav-buttons { display: none !important; }
 
 <!-- Modal lista de RMs guardadas -->
 <div id="rms-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2000;align-items:flex-end;justify-content:center">
-  <div style="background:var(--bg,#fff);width:100%;max-width:560px;max-height:85vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px">
+  <div style="background:#fff;color:#111;width:100%;max-width:560px;max-height:85vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <h3 style="margin:0;font-size:1.05rem">📋 RMs guardadas</h3>
-      <button type="button" id="rms-close" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--fg)">✕</button>
+      <h3 style="margin:0;font-size:1.05rem;color:#111">📋 RMs guardadas</h3>
+      <button type="button" id="rms-close" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#111">✕</button>
     </div>
-    <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:8px;background:var(--red,#e63946);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
+    <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:8px;background:#e63946;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       ⬇️ KMZ del día (todas las RM)
     </button>
     <button type="button" id="btn-guardar-jornada" style="width:100%;padding:12px;margin-bottom:8px;background:#0f766e;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       🗓️ Archivar jornada y empezar de cero
     </button>
     <div style="display:flex;gap:8px;margin-bottom:6px">
-      <button type="button" id="btn-export-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">💾 Guardar respaldo</button>
-      <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--fg);cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
+      <button type="button" id="btn-export-backup" style="flex:1;padding:10px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:8px;color:#111;cursor:pointer;font-size:0.85rem">💾 Guardar respaldo</button>
+      <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:8px;color:#111;cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
       <input type="file" id="input-backup" accept=".json,application/json" style="display:none">
     </div>
-    <p style="font-size:0.72rem;color:var(--muted);margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras y lo ves en el mapa, incluso en otro dispositivo.</p>
+    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras y lo ves en el mapa, incluso en otro dispositivo.</p>
     <div id="rms-list"></div>
-    <div style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px">
-      <h4 style="margin:0 0 8px;font-size:0.95rem">🗓️ Jornadas archivadas</h4>
+    <div style="border-top:1px solid #e5e7eb;margin-top:6px;padding-top:10px">
+      <h4 style="margin:0 0 8px;font-size:0.95rem;color:#111">🗓️ Jornadas archivadas</h4>
       <div id="jornadas-list"></div>
     </div>
   </div>
@@ -1003,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v56';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v57';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3817,13 +3817,13 @@ async function renderJornadas() {
   if (!cont) return;
   const js = await jornadaGetAll();
   if (!js.length) {
-    cont.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;text-align:center;padding:8px">No hay jornadas archivadas.</p>';
+    cont.innerHTML = '<p style="color:#6b7280;font-size:0.8rem;text-align:center;padding:8px">No hay jornadas archivadas.</p>';
     return;
   }
-  const bs = 'padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.8rem';
-  cont.innerHTML = js.map(j => `<div style="border:1px solid var(--border);border-radius:10px;padding:9px;margin-bottom:8px">
-      <div style="font-weight:600">🗓️ Jornada del ${jornadaFechaLabel(j)}</div>
-      <div style="font-size:0.78rem;color:var(--muted);margin:2px 0">${j.nRms} RM${j.ini ? ' · ' + escapeHtmlJS(j.ini) : ''}</div>
+  const bs = 'padding:7px 9px;border-radius:8px;border:1px solid #9ca3af;background:#f3f4f6;color:#111;cursor:pointer;font-size:0.8rem';
+  cont.innerHTML = js.map(j => `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:9px;margin-bottom:8px">
+      <div style="font-weight:600;color:#111">🗓️ Jornada del ${jornadaFechaLabel(j)}</div>
+      <div style="font-size:0.78rem;color:#6b7280;margin:2px 0">${j.nRms} RM${j.ini ? ' · ' + escapeHtmlJS(j.ini) : ''}</div>
       <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
         <button type="button" data-jact="cargar" data-jid="${j.id}" style="${bs}">↩️ Cargar</button>
         <button type="button" data-jact="descargar" data-jid="${j.id}" style="${bs}">💾 Descargar</button>
@@ -3843,18 +3843,18 @@ async function renderRMsList() {
   savedRMsCache = await rmGetAll();
   document.getElementById('rms-count').textContent = savedRMsCache.length;
   if (!savedRMsCache.length) {
-    list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:16px">No hay RMs guardadas aún.</p>';
+    list.innerHTML = '<p style="color:#6b7280;text-align:center;padding:16px">No hay RMs guardadas aún.</p>';
     return;
   }
-  const bs = 'padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--fg);cursor:pointer;font-size:0.82rem';
+  const bs = 'padding:8px 10px;border-radius:8px;border:1px solid #9ca3af;background:#f3f4f6;color:#111;cursor:pointer;font-size:0.82rem';
   list.innerHTML = savedRMsCache.map(r => {
     const s = r.summary || {};
     const titulo = s.localidad || r.id || 'RM sin nombre';
     const sub = [s.tipo, s.fecha].filter(Boolean).map(escapeHtmlJS).join(' · ') || '—';
-    return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
-      <div style="font-weight:600;word-break:break-word">${escapeHtmlJS(titulo)}</div>
-      <div style="font-size:0.82rem;color:var(--muted);margin:2px 0">${sub}</div>
-      <div style="font-size:0.7rem;color:var(--muted);opacity:.85">${escapeHtmlJS(r.id)} · guardada ${new Date(r.savedAt).toLocaleDateString('es-CL')}</div>
+    return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="font-weight:600;word-break:break-word;color:#111">${escapeHtmlJS(titulo)}</div>
+      <div style="font-size:0.82rem;color:#4b5563;margin:2px 0">${sub}</div>
+      <div style="font-size:0.7rem;color:#6b7280">${escapeHtmlJS(r.id)} · guardada ${new Date(r.savedAt).toLocaleDateString('es-CL')}</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
         <button type="button" data-act="abrir" data-key="${r.key}" style="${bs}">✏️ Abrir</button>
         <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
@@ -4811,6 +4811,10 @@ function pelCrearControl() {
   };
   return ctrl;
 }
+// Visor de leyenda con zoom táctil propio: el viewport meta tiene user-scalable=no (para no
+// interferir con el llenado del formulario), así que el pellizco nativo del navegador no
+// funciona aquí — hay que implementarlo a mano con Pointer Events (pellizcar, doble toque,
+// arrastrar; rueda del mouse en PC) sobre un <img> posicionado con transform.
 function verLeyendaPeligro() {
   const m = (pelData || []).find(x => x.id === pelActivoId);
   if (!m || !m.leyenda) { toastMapa('Este mapa no tiene leyenda separada'); return; }
@@ -4819,11 +4823,87 @@ function verLeyendaPeligro() {
   ov.style.cssText = 'position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.85);display:flex;flex-direction:column;padding:12px';
   ov.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;color:#fff;margin-bottom:8px;gap:10px">`
     + `<b style="font-size:.85rem">Leyenda — ${esc(m.titulo || '')}</b>`
-    + `<button type="button" style="padding:6px 12px;background:#e5534b;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;flex:0 0 auto">✕ Cerrar</button></div>`
-    + `<div style="flex:1;overflow:auto;background:#fff;border-radius:8px"><img src="${PEL_BASE + m.leyenda}" style="width:100%;display:block" alt="leyenda"></div>`;
-  ov.querySelector('button').addEventListener('click', () => ov.remove());
-  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+    + `<button type="button" class="leg-cerrar" style="padding:6px 12px;background:#e5534b;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;flex:0 0 auto">✕ Cerrar</button></div>`
+    + `<div class="leg-viewport" style="flex:1;overflow:hidden;background:#fff;border-radius:8px;position:relative;touch-action:none;cursor:grab">`
+    + `<img class="leg-img" src="${PEL_BASE + m.leyenda}" style="position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none" alt="leyenda" draggable="false"></div>`
+    + `<div style="text-align:center;color:#c9d4de;font-size:.68rem;margin-top:6px">Pellizca o doble toca para hacer zoom · arrastra para mover</div>`;
   document.body.appendChild(ov);
+  ov.querySelector('.leg-cerrar').addEventListener('click', () => ov.remove());
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  const viewport = ov.querySelector('.leg-viewport'), img = ov.querySelector('.leg-img');
+  let natW = 0, natH = 0, minScale = 1, maxScale = 1, scale = 1, tx = 0, ty = 0;
+  const apply = () => { img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; };
+  const clampPan = () => {
+    const vw = viewport.clientWidth, vh = viewport.clientHeight, w = natW * scale, h = natH * scale;
+    tx = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, tx));
+    ty = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, ty));
+  };
+  const fit = () => {
+    const vw = viewport.clientWidth, vh = viewport.clientHeight;
+    natW = img.naturalWidth || vw; natH = img.naturalHeight || vh;
+    minScale = Math.min(vw / natW, vh / natH); maxScale = minScale * 5; scale = minScale;
+    img.style.width = natW + 'px'; img.style.height = natH + 'px';
+    tx = (vw - natW * scale) / 2; ty = (vh - natH * scale) / 2;
+    apply();
+  };
+  const zoomAt = (localX, localY, newScale) => {
+    newScale = Math.max(minScale, Math.min(maxScale, newScale));
+    const ratio = newScale / scale;
+    tx = localX - (localX - tx) * ratio; ty = localY - (localY - ty) * ratio;
+    scale = newScale; clampPan(); apply();
+  };
+  img.addEventListener('load', fit);
+  if (img.complete && img.naturalWidth) fit();
+
+  const pts = new Map();
+  let panStart = null, lastDist = 0, lastTap = 0;
+  viewport.addEventListener('pointerdown', e => {
+    // pts.set() SIEMPRE primero: setPointerCapture puede lanzar (Safari iOS tiene rarezas
+    // conocidas con Pointer Events) y no debe tumbar el tracking del pellizco/arrastre.
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { viewport.setPointerCapture(e.pointerId); } catch {}
+    if (pts.size === 1) panStart = { x: e.clientX - tx, y: e.clientY - ty };
+    else if (pts.size === 2) { const [a, b] = [...pts.values()]; lastDist = Math.hypot(a.x - b.x, a.y - b.y); }
+  });
+  viewport.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1 && panStart) {
+      tx = e.clientX - panStart.x; ty = e.clientY - panStart.y; clampPan(); apply();
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const rect = viewport.getBoundingClientRect();
+      const midLocal = { x: (a.x + b.x) / 2 - rect.left, y: (a.y + b.y) / 2 - rect.top };
+      zoomAt(midLocal.x, midLocal.y, scale * (dist / lastDist));
+      lastDist = dist;
+    }
+  });
+  const onPointerUp = e => {
+    const eraDosDedos = pts.size >= 2;
+    pts.delete(e.pointerId);
+    if (pts.size === 1) { const p = [...pts.values()][0]; panStart = { x: p.x - tx, y: p.y - ty }; }
+    if (pts.size === 0) {
+      panStart = null;
+      if (!eraDosDedos) {
+        const ahora = Date.now();
+        if (ahora - lastTap < 300) {
+          const rect = viewport.getBoundingClientRect();
+          if (scale > minScale * 1.05) fit();
+          else zoomAt(e.clientX - rect.left, e.clientY - rect.top, minScale * 2.5);
+        }
+        lastTap = ahora;
+      }
+    }
+  };
+  viewport.addEventListener('pointerup', onPointerUp);
+  viewport.addEventListener('pointercancel', e => { pts.delete(e.pointerId); if (!pts.size) panStart = null; });
+  viewport.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    zoomAt(e.clientX - rect.left, e.clientY - rect.top, scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+  }, { passive: false });
 }
 async function togglePeligros() {
   if (!mapaFull) return;
