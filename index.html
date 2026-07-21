@@ -1003,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v54';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v55';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3395,18 +3395,38 @@ async function lineaDelete(id) {
     req.onerror = () => reject(req.error);
   });
 }
+// Las fotos de una RM se guardan en IndexedDB como dataURL (texto), NO como Blob binario:
+// Safari/WebKit falla intermitentemente al persistir Blobs (sobre todo varios en un mismo
+// registro, o con poco espacio libre) con el error genérico "Error preparing Blob/File data
+// to be stored in object store". Guardar como string evita ese codepath por completo. El resto
+// del código sigue trabajando con Blobs reales en memoria (rmAdd convierte al guardar, rmGetAll
+// reconvierte al leer) — helpers `_blobToDataURL`/`_dataURLToBlob` reutilizados del respaldo JSON.
+async function _fotosParaGuardar(fotos) {
+  if (!fotos || !fotos.length) return fotos;
+  const out = [];
+  for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blobDataUrl: f.blob ? await _blobToDataURL(f.blob) : (f.blobDataUrl || null) });
+  return out;
+}
+async function _fotosDesdeGuardado(fotos) {
+  if (!fotos || !fotos.length) return fotos;
+  const out = [];
+  for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : (f.blob || null) });
+  return out;
+}
 async function rmGetAll() {
   const db = await rmDbOpen();
-  return new Promise((resolve, reject) => {
+  const rows = await new Promise((resolve, reject) => {
     const req = db.transaction(RM_STORE, 'readonly').objectStore(RM_STORE).getAll();
     req.onsuccess = () => resolve((req.result || []).sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0)));
     req.onerror = () => reject(req.error);
   });
+  return Promise.all(rows.map(async r => ({ ...r, fotos: await _fotosDesdeGuardado(r.fotos) })));
 }
 async function rmAdd(rec) {
   const db = await rmDbOpen();
+  const paraGuardar = { ...rec, fotos: await _fotosParaGuardar(rec.fotos) };
   return new Promise((resolve, reject) => {
-    const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).add(rec);
+    const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).add(paraGuardar);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
