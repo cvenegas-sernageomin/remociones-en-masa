@@ -390,8 +390,8 @@ body.map-mode #nav-buttons { display: none !important; }
 
 <!-- Progress -->
 <div id="progress-bar">
-  <div id="progress-track"><div id="progress-fill" style="width:20%"></div></div>
-  <div id="step-label">Paso 1 de 5 — Ubicación</div>
+  <div id="progress-track"><div id="progress-fill" style="width:16.67%"></div></div>
+  <div id="step-label">Paso 1 de 6 — Ubicación</div>
 </div>
 
 <!-- PASO 1: Ubicación -->
@@ -1003,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v58';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v59';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2057,20 +2057,26 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
     return row(f.label, `${v.valor} ${f.unit}${v.estimado ? ' (est.)' : ''}`);
   }).join('');
 
-  const fotosHTML = fotoEntries.map(({ fname, desc, azimuth }) => {
+  // Fotos a tamaño grande para Google Earth Pro (PC): el globo se ensancha al ancho
+  // declarado de la imagen (720 px), y las fotos se guardan hasta 1600 px, así que no
+  // hay pérdida de nitidez. width="720" (atributo HTML) fuerza el ancho del globo en GE Pro.
+  const fotosHTML = fotoEntries.length ? `<h3 style="color:#555;margin-top:14px">📷 Registro fotográfico</h3>` + fotoEntries.map(({ fname, desc, azimuth }) => {
     const azStr = azimuth !== null && azimuth !== undefined ? ` &nbsp;🧭 ${azimuth}°N` : '';
-    return `<p><img src="${fname}" style="max-width:100%;border-radius:6px;margin:8px 0"><br><i>${escapeHtml(desc)}${azStr}</i></p>`;
-  }).join('');
+    const cap = escapeHtml(desc) + azStr;
+    return `<div style="margin:12px 0"><img src="${fname}" width="720" style="width:720px;max-width:100%;height:auto;border-radius:6px;display:block"/>${cap.trim() ? `<div style="font-size:12px;color:#555;margin-top:4px"><i>${cap}</i></div>` : ''}</div>`;
+  }).join('') : '';
 
   const satelitalHTML = satelitalFilename
-    ? `<p><b>Vista satelital:</b><br><img src="${satelitalFilename}" style="max-width:100%;border-radius:6px;margin:8px 0"></p>`
+    ? `<h3 style="color:#555;margin-top:14px">🛰️ Vista satelital</h3><div style="margin:8px 0"><img src="${satelitalFilename}" width="720" style="width:720px;max-width:100%;height:auto;border-radius:6px;display:block"/></div>`
     : '';
 
   const amenazaStyle = data.amenaza === 'si' ? 'color:red;font-weight:bold' : data.amenaza === 'incierta' ? 'color:orange' : '';
   const amenazaLabel = data.amenaza === 'si' ? 'SÍ' : data.amenaza === 'incierta' ? 'Incierta' : data.amenaza === 'no' ? 'No' : 'No registrado';
 
+  // Ancho fijo de 720 px: Google Earth Pro dimensiona el globo según el ancho declarado
+  // del contenido, y con max-width:500 el globo salía muy angosto para leer en el PC.
   const description = `<![CDATA[
-<html><body style="font-family:Arial,sans-serif;font-size:13px;max-width:500px">
+<div style="width:720px;font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.45">
 <h2 style="color:#e63946;border-bottom:2px solid #e63946;padding-bottom:6px">${tipo}</h2>
 <h3 style="color:#555">📍 Ubicación y clasificación</h3>
 <table style="border-collapse:collapse;width:100%">
@@ -2130,7 +2136,7 @@ ${data.otros ? `<h3 style="color:#555;margin-top:12px">💬 Otros</h3><p>${escap
 <p style="color:#888;font-size:11px">Autor: ${escapeHtml(data.autor) || 'No registrado'} | Ingreso: ${escapeHtml(data['hora-ingreso'])}</p>
 ${fotosHTML}
 ${satelitalHTML}
-</body></html>
+</div>
 ]]>`;
 
   const groundOverlay = (geotiffFilename && data.geotiffBounds) ? `
@@ -3901,12 +3907,15 @@ async function generateCombinedKMZ() {
           const fn = `${folder}/foto_${j + 1}.jpg`;
           zip.file(fn, f.blob);
           const az = f.azimuth != null ? ` 🧭 ${f.azimuth}°N` : '';
-          fotosHtml += `<p><img src="${fn}" style="max-width:100%"><br><i>${esc(f.desc || '')}${az}</i></p>`;
+          const cap = (esc(f.desc || '') + az).trim();
+          fotosHtml += `<div style="margin:12px 0"><img src="${fn}" width="720" style="width:720px;max-width:100%;height:auto;border-radius:6px;display:block"/>${cap ? `<div style="font-size:12px;color:#555;margin-top:4px"><i>${cap}</i></div>` : ''}</div>`;
         }
       });
+      if (fotosHtml) fotosHtml = `<h3 style="color:#555;margin-top:14px">📷 Registro fotográfico</h3>` + fotosHtml;
       try { const ic = await generateIconPng(d.zona || 'generacion'); zip.file(`${folder}/icon.png`, ic); } catch {}
       const estado = d.amenaza === 'si' ? 'Activo' : d.amenaza === 'no' ? 'Inactivo' : d.amenaza === 'incierta' ? 'En evaluación' : 'No evaluado';
-      const desc = `<![CDATA[<html><body style="font-family:Arial,sans-serif;font-size:13px">
+      // Ancho fijo 720 px para que el globo se vea cómodo en Google Earth Pro (PC).
+      const desc = `<![CDATA[<div style="width:720px;font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.45">
 <h3 style="color:#e63946">${esc(d.id || ('RM ' + (i + 1)))}</h3>
 <p><b>Tipo:</b> ${esc(d['tipo-movimiento'] || '—')}</p>
 <p><b>Localidad:</b> ${esc(d.localidad || '—')} &nbsp; <b>Región:</b> ${esc(d.region || '—')}</p>
@@ -3914,7 +3923,7 @@ async function generateCombinedKMZ() {
 <p><b>Estado:</b> ${esc(estado)}</p>
 <p><b>Coordenadas:</b> ${c.lat.toFixed(6)}, ${lng.toFixed(6)}</p>
 ${fotosHtml}
-</body></html>]]>`;
+</div>]]>`;
       placemarks.push(`<Placemark>
   <name>${esc(d.id || ('RM ' + (i + 1)))}</name>
   <description>${desc}</description>
@@ -4429,10 +4438,22 @@ async function cargarKmzArchivo(file) {
     };
     const texto = (el, sel) => el?.querySelector(sel)?.textContent?.trim() || '';
 
-    // Descripción → popup: reescribir <img src> internos a blob URLs y quitar scripts
+    // Sanitiza la descripción de un KMZ/KML AJENO antes de inyectarla como popup.
+    // Aunque el archivo lo elige el propio usuario, se eliminan los vectores de
+    // ejecución de script (self-XSS): tags <script>/<iframe>/<object>/<embed>/<link>/<meta>,
+    // atributos de evento on*= y URIs javascript: en href/src.
+    const sanitizarHtml = h => String(h || '')
+      .replace(/<\s*(script|iframe|object|embed|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+      .replace(/<\s*(script|iframe|object|embed|link|meta)\b[^>]*\/?>/gi, '')
+      .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+      .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+      .replace(/(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"');
+
+    // Descripción → popup: sanitiza y reescribe <img src> internos a blob URLs
     const descHtml = d => {
       if (!d) return '';
-      let h = d.replace(/<script[\s\S]*?<\/script>/gi, '');
+      let h = sanitizarHtml(d);
       h = h.replace(/src=["']([^"']+)["']/gi, (m0, src) => {
         if (/^(https?:|data:|blob:)/i.test(src)) return m0;
         const clave = decodeURIComponent(src.replace(/^\.\//, ''));
@@ -5189,6 +5210,11 @@ refreshRMsCount().then(() => {
   const idEl = document.getElementById('rm-id');
   if (idEl && !idEl.value) generateRMId().then(id => { idEl.value = id; });
 });
+
+// Sincroniza el indicador de paso con TOTAL_STEPS al cargar (el HTML estático dice
+// "Paso 1 de 5 / 20%" pero el wizard tiene 6 pasos → sin esto la primera pantalla
+// muestra el conteo equivocado hasta la primera navegación).
+goToStep(1);
 
   </script>
 
