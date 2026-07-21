@@ -1003,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v51';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v52';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4708,8 +4708,15 @@ function pelCrearControl() {
     const multi = (pelData || []).length > 1;
     let html = '<div style="font-weight:600;margin-bottom:6px">🗺️ Mapa de peligro</div>';
     if (multi) {
+      // Agrupado por región (orden alfabético; "Sin región" al final) para que el selector
+      // escale con muchos mapas sin volverse una lista plana ilegible.
+      const porRegion = {};
+      pelData.forEach(m => { const r = m.region || 'Sin región'; (porRegion[r] = porRegion[r] || []).push(m); });
+      const regiones = Object.keys(porRegion).sort((a, b) => a === 'Sin región' ? 1 : b === 'Sin región' ? -1 : a.localeCompare(b, 'es'));
       html += '<select class="pel-sel" style="width:100%;margin-bottom:6px;padding:4px;border-radius:6px;background:#0d1117;color:#e8edf2;border:1px solid #30363d;font-size:.76rem">'
-        + pelData.map(m => `<option value="${esc(m.id)}">${esc(m.titulo || m.id)}</option>`).join('') + '</select>';
+        + regiones.map(r => `<optgroup label="${esc(r)}">`
+          + porRegion[r].map(m => `<option value="${esc(m.id)}">${esc(m.titulo || m.id)}</option>`).join('')
+          + '</optgroup>').join('') + '</select>';
     } else if ((pelData || [])[0]) {
       html += `<div style="margin-bottom:6px;line-height:1.3;color:#c9d4de">${esc(pelData[0].titulo || '')}</div>`;
     }
