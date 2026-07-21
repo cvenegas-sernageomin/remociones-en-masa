@@ -1003,7 +1003,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v57';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v58';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4758,7 +4758,7 @@ function pelSyncPanel() {
   if (toggle) toggle.textContent = pelColapsado ? '▸' : '▾';
   if (titulo) {
     const activoMapa = (pelData || []).find(m => m.id === pelActivoId);
-    titulo.textContent = '🗺️ ' + (activoMapa ? (activoMapa.titulo || activoMapa.id) : 'Mapa de peligro');
+    titulo.textContent = '🗺️ ' + (activoMapa ? (activoMapa.titulo || activoMapa.id) : 'Elige un mapa');
   }
 }
 function pelCrearControl() {
@@ -4769,9 +4769,10 @@ function pelCrearControl() {
     L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
     const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
     const multi = (pelData || []).length > 1;
-    const activoInicial = (pelData || []).find(m => m.id === pelActivoId) || (pelData || [])[0];
+    // Sin auto-selección: al abrir la capa NINGÚN mapa está activo todavía (el usuario elige).
+    const activoInicial = (pelData || []).find(m => m.id === pelActivoId) || null;
     let html = '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'
-      + `<div class="pel-titulo-header" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🗺️ ${esc(activoInicial ? (activoInicial.titulo || activoInicial.id) : 'Mapa de peligro')}</div>`
+      + `<div class="pel-titulo-header" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🗺️ ${esc(activoInicial ? (activoInicial.titulo || activoInicial.id) : 'Elige un mapa')}</div>`
       + `<button class="pel-toggle" type="button" title="Contraer/expandir" aria-label="Contraer o expandir el panel de mapas"
           style="flex:0 0 auto;background:none;border:none;color:#e8edf2;font-size:1rem;line-height:1;cursor:pointer;padding:2px 4px">${pelColapsado ? '▸' : '▾'}</button>`
       + '</div>';
@@ -4781,19 +4782,19 @@ function pelCrearControl() {
     if (multi) {
       // Menú desplegable NATIVO por región (<details>/<summary>): escala mejor que una lista
       // plana o un <select> a medida que se agregan regiones (Coquimbo, Valparaíso, O'Higgins...).
+      // TODAS cerradas mientras no haya mapa elegido (pelActivoId null) para que el usuario decida.
       const porRegion = {};
       pelData.forEach(m => { const r = m.region || 'Sin región'; (porRegion[r] = porRegion[r] || []).push(m); });
       const regiones = Object.keys(porRegion).sort((a, b) => a === 'Sin región' ? 1 : b === 'Sin región' ? -1 : a.localeCompare(b, 'es'));
-      const activo = (pelData.find(m => m.id === pelActivoId) || pelData[0]);
       html += regiones.map(r => {
-        const abierta = porRegion[r].some(m => m.id === activo.id);
+        const abierta = !!pelActivoId && porRegion[r].some(m => m.id === pelActivoId);
         return `<details class="pel-region" ${abierta ? 'open' : ''} style="margin-bottom:2px">`
           + `<summary style="cursor:pointer;padding:4px 2px;font-weight:600;color:#c9d4de">${esc(r)} <span style="opacity:.6;font-weight:400">(${porRegion[r].length})</span></summary>`
           + `<div style="padding-left:6px">${porRegion[r].map(itemHtml).join('')}</div>`
           + '</details>';
       }).join('');
     } else if ((pelData || [])[0]) {
-      html += `<div style="margin-bottom:6px;line-height:1.3;color:#c9d4de">${esc(pelData[0].titulo || '')}</div>`;
+      html += itemHtml(pelData[0]);   // un solo mapa: igual requiere click explícito, sin auto-mostrar
     }
     html += '<label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;margin-top:4px">Opacidad'
       + `<input class="pel-rng" type="range" min="0" max="100" value="${Math.round(pelOpacidad * 100)}" style="flex:1"></label>`;
@@ -4816,6 +4817,7 @@ function pelCrearControl() {
 // funciona aquí — hay que implementarlo a mano con Pointer Events (pellizcar, doble toque,
 // arrastrar; rueda del mouse en PC) sobre un <img> posicionado con transform.
 function verLeyendaPeligro() {
+  if (!pelActivoId) { toastMapa('Primero elige un mapa de la lista'); return; }
   const m = (pelData || []).find(x => x.id === pelActivoId);
   if (!m || !m.leyenda) { toastMapa('Este mapa no tiene leyenda separada'); return; }
   const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
@@ -4920,10 +4922,13 @@ async function togglePeligros() {
   try {
     await cargarMapasPeligro();
     if (!pelData.length) { toastMapa('No hay mapas disponibles'); pelOn = false; pelBtnEstado('🗺️ Mapas', false); return; }
+    // No autoseleccionar ningún mapa: el panel aparece visible con las regiones contraídas
+    // para que el usuario elija (nada se dibuja sobre el mapa hasta que toque un ítem).
+    pelActivoId = null;
+    pelColapsado = false;
     pelCtrl = pelCrearControl(); pelCtrl.addTo(mapaFull);
-    mostrarMapaPeligro(pelActivoId || pelData[0].id, true);
     pelBtnEstado('🗺️ Mapas', true);
-    toastMapa('🗺️ ' + pelData.length + ' mapa' + (pelData.length > 1 ? 's' : '') + ' de peligro');
+    toastMapa('🗺️ ' + pelData.length + ' mapa' + (pelData.length > 1 ? 's' : '') + ' de peligro disponible' + (pelData.length > 1 ? 's' : ''));
   } catch (err) {
     console.warn('Mapas de peligro:', err);
     toastMapa('⚠️ No se pudieron cargar los mapas (¿sin conexión?)');
