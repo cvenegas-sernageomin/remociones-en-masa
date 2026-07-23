@@ -1,0 +1,17 @@
+{
+ "regiones": [
+  {
+   "id": "atacama",
+   "nombre": "Atacama",
+   "archivo": "ipt_atacama.json",
+   "bbox": [
+    -71.5901,
+    -29.1849,
+    -70.0146,
+    -25.9601
+   ],
+   "n": 1407,
+   "generado": "2026-07-23"
+  }
+ ]
+}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v65';
+const CACHE_NAME = 'remociones-v66';
 const ASSETS = [
   './',
   './index.html',
@@ -60,7 +60,9 @@ self.addEventListener('fetch', e => {
   const esDoc = req.mode === 'navigate' || req.destination === 'document' ||
                 req.url.endsWith('/') || req.url.endsWith('index.html');
 
-  if (esDoc) {
+  // El índice de regiones IPT también va network-first: así una región nueva publicada
+  // aparece sin bump de versión (los ipt_<region>.json grandes siguen cache-first)
+  if (esDoc || req.url.endsWith('ipt/manifest.json')) {
     // network-first para el HTML: siempre la última versión estando en línea
     e.respondWith(
       fetch(req).then(resp => {
