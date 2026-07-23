@@ -80,6 +80,46 @@
    "fuente": "MINVU"
   },
   {
+   "id": "valparaiso",
+   "nombre": "Valparaíso",
+   "bbox": [
+    -109.4441,
+    -33.7855,
+    -69.9876,
+    -27.1211
+   ],
+   "grupos": [
+    {
+     "g": "AR",
+     "archivo": "valparaiso_AR.json",
+     "n": 794
+    },
+    {
+     "g": "LU",
+     "archivo": "valparaiso_LU.json",
+     "n": 65
+    },
+    {
+     "g": "PRC",
+     "archivo": "valparaiso_PRC.json",
+     "n": 10892
+    },
+    {
+     "g": "PRI",
+     "archivo": "valparaiso_PRI.json",
+     "n": 542
+    },
+    {
+     "g": "ZNE",
+     "archivo": "valparaiso_ZNE.json",
+     "n": 231
+    }
+   ],
+   "n": 12524,
+   "generado": "2026-07-23",
+   "fuente": "MINVU"
+  },
+  {
    "id": "division_comunal",
    "nombre": "División comunal (Chile)",
    "bbox": [

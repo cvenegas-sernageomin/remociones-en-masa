@@ -35,6 +35,7 @@ Uso:
 import glob
 import json
 import os
+import re
 import sys
 import warnings
 from datetime import date
@@ -66,6 +67,16 @@ REGIONES_MINVU = {
             'PRI_Coquimbo': 'auto',     # planes intercomunales (Elqui/Limari) + zonas no edificables + areas de riesgo
             'PRDU_Coquimbo': 'PRDU',    # plan regional de desarrollo urbano (todo el servicio)
         },
+    },
+    'valparaiso': {
+        'nombre': 'Valparaíso',
+        'servicios': {
+            # ojo: el nombre del servicio PRC lleva tilde en la URL (PRC_Valparaíso),
+            # el de PRI no (PRI_Valparaiso) — asi estan publicados en geoide.minvu.cl.
+            'PRC_Valparaíso': 'auto',   # ~50 subcapas: un PRC por comuna + seccionales + AR/ZNE de algunas comunas
+            'PRI_Valparaiso': 'auto',
+        },
+        # sin PRDU: MINVU no publica PRDU_Valparaiso (solo existe para Arica y Parinacota, Coquimbo, OHiggins)
     },
 }
 
@@ -271,13 +282,16 @@ _ACENTOS = str.maketrans('áéíóúÁÉÍÓÚ', 'aeiouAEIOU')
 
 def clasificar_capa(nombre):
     """Grupo IPT segun el nombre de la capa MINVU (sin acentos, minuscula)."""
-    n = nombre.translate(_ACENTOS).lower()
+    # normaliza "_" a espacio ANTES de aplicar \b: en regex "_" es caracter de palabra,
+    # asi que "..._zne" no tiene frontera antes de la z y \bzne\b no calzaba (bug real,
+    # visto en "IPT_PRC_05_LosAndes_ZNE" -> quedaba mal clasificado como PRC).
+    n = nombre.translate(_ACENTOS).lower().replace('_', ' ')
     if 'riesgo' in n:
         return 'AR'                       # area de riesgo (prioritario: aplica sobre PRC/PRI)
-    if 'no edificable' in n or 'no_edif' in n:
-        return 'ZNE'
-    if 'limite urbano' in n or 'limite_urbano' in n:
-        return 'LU'
+    if 'no edificable' in n or re.search(r'\bzne\b', n):
+        return 'ZNE'                       # incluye nombres abreviados tipo "PRC LosAndes ZNE"
+    if 'limite urbano' in n or 'limites urbano' in n:
+        return 'LU'                       # cubre singular y plural ("Limites Urbanos")
     if 'prdu' in n:
         return 'PRDU'
     if n.startswith('pri') or ' pri' in n or '_pri' in n:
