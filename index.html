@@ -1020,7 +1020,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v66';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v67';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4553,7 +4553,7 @@ function toggleTemporal() {
 let iptLayer = null, iptCanvas = null, iptOn = false, iptCtrl = null;
 let iptManifest = null, iptManifestCargando = false, iptAutoHecho = false;
 const iptRegiones = {};                  // id -> { on, cargando, data, sub: {grupo: L.geoJSON} }
-const iptVisible = { LU: true, PRC: true, PRI: true, ZNE: true };
+const iptVisible = { LU: true, PRC: true, PRI: true, ZNE: true, DC: true };   // DC = división comunal (capa nacional, sin checkbox de categoría)
 const IPT_BASE = 'ipt/';
 function iptBtnEstado(txt, activo) {
   const b = document.getElementById('mapa-ipt');
@@ -4570,18 +4570,26 @@ function iptColor(zk) {
 }
 function iptEstilo(feat) {
   const p = feat.properties || {};
+  if (p.g === 'DC') return { color: '#f59e0b', weight: 1.4, dashArray: '5 4', fill: false };   // límite comunal: ámbar segmentado
   if (p.g === 'LU') return { color: '#dc2626', weight: 3, dashArray: '6 4', fill: false };
   if (p.g === 'ZNE') return { color: '#7e22ce', weight: 2.5, dashArray: '4 3' };
   const c = iptColor(p.z || '');
   if (p.g === 'PRI') return { color: c, weight: 1, fillColor: c, fillOpacity: 0.15 };
   return { color: c, weight: 1.5, fillColor: c, fillOpacity: 0.25 };   // PRC
 }
-const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', ZNE: 'Zona no edificable' };
+const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', ZNE: 'Zona no edificable', DC: 'División comunal' };
 function iptNombreRegion(rid) {
   const r = iptManifest && iptManifest.regiones.find(x => x.id === rid);
   return r ? r.nombre : (rid || '');
 }
 function iptPopup(p) {
+  if (p.g === 'DC') {   // división comunal: solo comuna/provincia/región (no tiene diccionario de zonas)
+    let html = '<b>🏛️ Comuna de ' + esc2(p.com || '—') + '</b><br/>';
+    html += '<small style="color:#8a94a3">División comunal (SUBDERE)</small><br/>';
+    const partes = [p.loc ? 'Provincia de ' + p.loc : '', p.reg || ''].filter(Boolean);
+    if (partes.length) html += esc2(partes.join(' · '));
+    return html;
+  }
   const reg = iptRegiones[p.r];
   const z = (reg && reg.data && reg.data.zonas && reg.data.zonas[p.z]) || {};
   const zonaCod = (p.z || '').replace(/^[A-Z]+:/, '').replace(/~\d+$/, '');
@@ -4653,7 +4661,7 @@ function onIptClick(e) {
   // las ZNE son líneas (el ray casting no las encuentra): si se tocó una directamente, va primero
   if (clicked && !feats.includes(clicked)) feats.unshift(clicked);
   if (!feats.length) return;
-  const orden = { PRC: 0, ZNE: 1, PRI: 2, LU: 3 };
+  const orden = { PRC: 0, ZNE: 1, PRI: 2, LU: 3, DC: 4 };   // la comuna al final (lo menos específico)
   feats.sort((a, b) => (orden[a.properties.g] ?? 1) - (orden[b.properties.g] ?? 1));
   const MAX = 8;
   let html = feats.slice(0, MAX).map(f => iptPopup(f.properties || {})).join('<hr style="margin:7px 0;border:none;border-top:1px solid #d1d5db"/>');
@@ -4665,7 +4673,7 @@ function onIptClick(e) {
 // recorriendo en orden de dibujo (PRI extenso al fondo, PRC encima, ZNE y LU al tope).
 function iptAplicarVisibilidad() {
   if (!iptLayer) return;
-  ['PRI', 'PRC', 'ZNE', 'LU'].forEach(g => {
+  ['PRI', 'PRC', 'ZNE', 'DC', 'LU'].forEach(g => {
     Object.values(iptRegiones).forEach(reg => {
       const sl = reg.sub && reg.sub[g];
       if (!sl) return;
@@ -4694,7 +4702,7 @@ async function cargarRegionIPT(rid) {
     data.features.forEach(f => { f._bbox = iptBBox(f.geometry); f.properties.r = rid; });
     reg.data = data;
     reg.sub = {};
-    ['PRI', 'PRC', 'ZNE', 'LU'].forEach(g => {
+    ['PRI', 'PRC', 'ZNE', 'DC', 'LU'].forEach(g => {
       const fs = data.features.filter(f => f.properties.g === g);
       if (!fs.length) return;
       const sl = L.geoJSON({ type: 'FeatureCollection', features: fs }, { renderer: iptCanvas, style: iptEstilo });
@@ -4798,11 +4806,12 @@ async function cargarIPT() {
     iptAutoHecho = true;
     const vista = mapaFull.getBounds();
     let alguna = false;
-    iptManifest.regiones.forEach(r => {
+    const autoRegs = iptManifest.regiones.filter(r => r.auto !== false);   // capas nacionales (auto:false) nunca se autoseleccionan
+    autoRegs.forEach(r => {
       const bb = iptBoundsRegion(r.id);
       if (bb && vista.intersects(bb)) { iptRegiones[r.id].on = true; alguna = true; }
     });
-    if (!alguna && iptManifest.regiones.length === 1) iptRegiones[iptManifest.regiones[0].id].on = true;
+    if (!alguna && autoRegs.length === 1) iptRegiones[autoRegs[0].id].on = true;
   }
   iptRenderPanel();
   iptAplicarVisibilidad();

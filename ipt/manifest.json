@@ -12,6 +12,20 @@
    ],
    "n": 1407,
    "generado": "2026-07-23"
+  },
+  {
+   "id": "division_comunal",
+   "nombre": "División comunal (Chile)",
+   "archivo": "division_comunal.json",
+   "bbox": [
+    -109.4618,
+    -55.98,
+    -66.4182,
+    -17.4989
+   ],
+   "n": 346,
+   "auto": false,
+   "generado": "2026-07-23"
   }
  ]
 }

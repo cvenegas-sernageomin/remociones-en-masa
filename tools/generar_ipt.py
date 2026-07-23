@@ -22,9 +22,15 @@ Formato del JSON por region:
   error menor que el GPS de terreno; a 5 m el PRI de Atacama quedaba en 9 MB).
 - Coordenadas WGS84 con 5 decimales (~1.1 m), consistente con la simplificacion.
 
+Ademas de las regiones IPT, genera una capa nacional de referencia:
+  ipt/division_comunal.json  346 comunas (SUBDERE), grupo 'DC', auto:false
+  (entra al mismo panel como pseudo-region que NO se autoselecciona porque
+  cubre todo Chile; se prende a mano).
+
 Uso:
-  python tools/generar_ipt.py                 # todas las regiones configuradas
-  python tools/generar_ipt.py atacama         # solo una
+  python tools/generar_ipt.py                    # todo (regiones + division comunal)
+  python tools/generar_ipt.py atacama            # solo una region
+  python tools/generar_ipt.py division_comunal   # solo la capa nacional de comunas
 """
 import glob
 import json
@@ -47,6 +53,18 @@ REGIONES = {
     # 'coquimbo': {'nombre': 'Coquimbo', 'src': r'...\IPT_Coquimbo'},
 }
 
+# Capa nacional de referencia: division comunal SUBDERE (346 comunas, todo Chile).
+# Entra al mismo panel IPT como pseudo-region con auto:false (no se autoselecciona
+# porque su bbox toca cualquier vista). Grupo 'DC'.
+DIVISION_COMUNAL = {
+    'id': 'division_comunal',
+    'nombre': 'División comunal (Chile)',
+    'shp': r'C:\Users\carlos.venegas\Documents\Sernageomin_Emergencia 2026'
+           r'\IPT_Atacama\division_comunal\division_comunal\division_comunal.shp',
+    'tol': 200,     # m; el shapefile fuente trae 2.7M vertices (46 MB); a 100 m quedaba en 10.7 MB
+    'decimales': 4, # ~11 m — consistente con la tolerancia; es capa de referencia, no de precision
+}
+
 # tolerancia de simplificacion en metros, por grupo
 TOL = {'LU': 2, 'PRC': 2, 'PRI': 10}
 DECIMALES = 5
@@ -65,11 +83,11 @@ def val(row, *cols):
     return ''
 
 
-def round_coords(obj):
+def round_coords(obj, dec=DECIMALES):
     if isinstance(obj, (list, tuple)):
         if obj and isinstance(obj[0], float):
-            return [round(x, DECIMALES) for x in obj]
-        return [round_coords(o) for o in obj]
+            return [round(x, dec) for x in obj]
+        return [round_coords(o, dec) for o in obj]
     return obj
 
 
@@ -167,9 +185,57 @@ def generar_region(rid, cfg):
     }
 
 
+def generar_division_comunal():
+    cfg = DIVISION_COMUNAL
+    if not os.path.isfile(cfg['shp']):
+        print(f"[{cfg['id']}] AVISO: no existe {cfg['shp']} — omitida")
+        return None
+    gdf = gpd.read_file(cfg['shp'])
+    gdf = gdf.to_crs(epsg=32719) if (gdf.crs and gdf.crs.to_epsg() != 32719) else gdf
+    gdf['geometry'] = gdf.geometry.simplify(cfg['tol'], preserve_topology=True)
+    gdf = gdf.to_crs(epsg=4326)
+
+    features = []
+    bbox = [180.0, 90.0, -180.0, -90.0]
+    for _, row in gdf.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        b = geom.bounds
+        bbox[0] = min(bbox[0], b[0]); bbox[1] = min(bbox[1], b[1])
+        bbox[2] = max(bbox[2], b[2]); bbox[3] = max(bbox[3], b[3])
+        features.append({
+            'type': 'Feature',
+            'properties': {k: v for k, v in (
+                ('g', 'DC'),
+                ('com', val(row, 'NOM_COM')),
+                ('loc', val(row, 'NOM_PROV')),                                  # provincia en el campo "loc"
+                ('reg', val(row, 'NOM_REG')),                                   # nombre de región tal cual (ya trae "Región de/del/Metropolitana…")
+            ) if v},
+            'geometry': round_coords(mapping(geom), cfg.get('decimales', DECIMALES)),
+        })
+
+    archivo = f"{cfg['id']}.json"
+    out_path = os.path.join(OUT_DIR, archivo)
+    fc = {'type': 'FeatureCollection', 'zonas': {}, 'features': features}
+    with open(out_path, 'w', encoding='utf-8') as f:
+        json.dump(fc, f, ensure_ascii=False, separators=(',', ':'))
+    kb = os.path.getsize(out_path) / 1024
+    print(f"[{cfg['id']}] -> {archivo}: {len(features)} comunas, {kb:.0f} KB")
+    return {
+        'id': cfg['id'],
+        'nombre': cfg['nombre'],
+        'archivo': archivo,
+        'bbox': [round(v, 4) for v in bbox],
+        'n': len(features),
+        'auto': False,        # nunca autoseleccionar (cubre todo Chile)
+        'generado': date.today().isoformat(),
+    }
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    pedidas = [a.lower() for a in sys.argv[1:]] or list(REGIONES)
+    pedidas = [a.lower() for a in sys.argv[1:]] or (list(REGIONES) + [DIVISION_COMUNAL['id']])
     manifest_path = os.path.join(OUT_DIR, 'manifest.json')
     # partir del manifest existente para no perder regiones no regeneradas en esta corrida
     previas = {}
@@ -181,14 +247,18 @@ def main():
             pass
 
     for rid in pedidas:
-        if rid not in REGIONES:
-            print(f'Region desconocida: {rid} (configuradas: {", ".join(REGIONES)})')
+        if rid == DIVISION_COMUNAL['id']:
+            entrada = generar_division_comunal()
+        elif rid in REGIONES:
+            entrada = generar_region(rid, REGIONES[rid])
+        else:
+            print(f'Region desconocida: {rid} (configuradas: {", ".join(REGIONES)}, {DIVISION_COMUNAL["id"]})')
             continue
-        entrada = generar_region(rid, REGIONES[rid])
         if entrada:
             previas[rid] = entrada
 
-    regiones = sorted(previas.values(), key=lambda r: r['nombre'])
+    # regiones primero (orden alfabetico), capas nacionales (auto:false) al final
+    regiones = sorted(previas.values(), key=lambda r: (r.get('auto') is False, r['nombre']))
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump({'regiones': regiones}, f, ensure_ascii=False, indent=1)
     print(f'\nmanifest.json: {len(regiones)} region(es): {", ".join(r["nombre"] for r in regiones)}')
