@@ -1020,7 +1020,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v68';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v69';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4579,6 +4579,9 @@ function iptAsegurarPanes() {
     }
     iptCanvasG[g] = L.canvas({ pane: pane, padding: 0.5, tolerance: TAP_TOLERANCIA });
   });
+  // fallback: ver el comentario grande en onIptClick — cubre el click "tapado" por un
+  // pane vacío arriba en el z-order. Se registra una sola vez (persiste entre toggles).
+  mapaFull.on('click', onIptClick);
 }
 // Color determinístico por clave de zona (hash → matiz HSL): cada zona (Z-C1, AR-2, ZU…)
 // mantiene siempre el mismo color entre sesiones y dispositivos, sin tabla manual.
@@ -4683,7 +4686,20 @@ function iptFeaturesEn(latlng) {
   return out;
 }
 function onIptClick(e) {
+  if (!iptOn) return;
   if (typeof dibujando !== 'undefined' && dibujando) return;   // no interferir con el dibujo de líneas
+  // Cada categoría vive en su propio pane/canvas apilado por z-index (IPT_ORDEN) y un
+  // canvas ocupa TODO el viewport aunque esté vacío ahí: si el pane de más arriba (p.ej.
+  // LU) no tiene una forma justo en ese punto, el navegador igual le entrega el click a
+  // ESE canvas (por estar encima) y Leaflet nunca prueba los panes de abajo (PRDU/PRI...)
+  // aunque sí tengan un polígono real ahí — el click queda "tapado" sin abrir nada.
+  // Por eso, además del listener por grupo (que trae `e.layer` cuando SÍ hay hit), este
+  // mismo handler se registra también a nivel de mapa (ver iptAsegurarPanes): si ningún
+  // grupo atajó el click, Leaflet propaga un click genérico del mapa con `e.layer` vacío;
+  // aquí se confirma que igual cayó sobre un pane IPT (y no un marcador/otra capa) antes
+  // de usar el ray casting para encontrar lo que haya debajo.
+  if (!e.layer && !(e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest &&
+      e.originalEvent.target.closest('[class*="leaflet-ipt-"]'))) return;
   L.DomEvent.stop(e);
   const clicked = e.layer && e.layer.feature;
   // solo las categorías que el usuario tiene visibles en el panel
