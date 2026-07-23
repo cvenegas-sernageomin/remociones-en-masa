@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v69';
+const CACHE_NAME = 'remociones-v70';
 const ASSETS = [
   './',
   './index.html',
@@ -53,6 +53,10 @@ self.addEventListener('fetch', e => {
 
   // Minutas ATG Flash: servicio REST de ArcGIS (features + adjuntos PDF) → siempre a la red
   if (req.url.includes('services1.arcgis.com')) return;
+
+  // Catálogo RMASA: informes PDF re-hosteados como assets de un GitHub Release (hasta ~55 MB
+  // c/u) → siempre a la red, sin cachear (evita llenar el storage con descargas puntuales)
+  if (req.url.includes('/releases/download/')) return;
 
   // Precipitación acumulada (Open-Meteo) → siempre a la red (dato en vivo, no cachear)
   if (req.url.includes('api.open-meteo.com')) return;

@@ -945,6 +945,10 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="mapa-temporal" title="Emergencias activas por el temporal de jul-2026 (MOP): Atacama, Coquimbo y Valparaíso">🌊 Emergencia (MOP)</button>
     <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-catalogo" title="Catálogo histórico de Remociones en Masa (RMASA) con informes técnicos en PDF: Atacama, Coquimbo, Valparaíso y Metropolitana">📚 Catálogo RMASA</button>
+      <small class="map-btn-src">SERNAGEOMIN</small>
+    </span>
+    <span class="map-btn-stack">
       <button class="map-btn" id="mapa-peligros" title="Mapas de peligro georreferenciados (SERNAGEOMIN) como capa; se descargan solo al activar">🗺️ Mapas</button>
       <small class="map-btn-src">SERNAGEOMIN</small>
     </span>
@@ -1020,7 +1024,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v69';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v70';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4115,6 +4119,9 @@ let minLayer = null, minCanvas = null, minOn = false, minData = null, minTs = 0,
 const MIN_SVC = 'https://services1.arcgis.com/OyjvVdFTl5hfSdX3/arcgis/rest/services/minutasATG_Flash/FeatureServer/0';
 const MIN_OUTF = 'OBJECTID,Nombre_Minuta,Fecha_evento,Tipo,Detonante,REGION,PROVINCIA,COMUNA';
 const MIN_MAXAGE = 6 * 60 * 60 * 1000;   // se recargan cada 6 h dentro de la sesión (crecen lento)
+// --- Capa "Catálogo RMASA" (1.640 puntos históricos, KMZ estático re-hosteado en GitHub) ---
+let catRLayer = null, catRCanvas = null, catROn = false, catRData = null, catRCargando = false;
+const CATR_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/informes-rmasa/main/catalogo_rmasa.kmz';
 const EST_KML_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/alertas-redes/live/red_alertas.kml';
 const EST_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h (el cron de alertas-redes actualiza ~2-5 h)
 const EST_COLOR = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d', gris: '#8a8a8a' };
@@ -4150,6 +4157,8 @@ function initMapaFull() {
   estLayer = L.layerGroup();                        // se agrega al mapa solo al activar el toggle
   minCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas para las minutas ATG
   minLayer = L.layerGroup();
+  catRCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para el catálogo RMASA (1.640 pts)
+  catRLayer = L.layerGroup();
   pronoCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA }); // renderer canvas para la grilla de pronóstico
   pronoLayer = L.layerGroup();
   pcCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });    // renderer canvas para puntos críticos (15.799)
@@ -5233,6 +5242,148 @@ function toggleMinutas() {
   }
 }
 
+// ---- Capa "Catálogo RMASA" (catálogo histórico estático, KMZ re-hosteado en informes-rmasa) ----
+// Dataset fijo (no cambia en vivo como Minutas ATG): se carga una sola vez por sesión.
+// Solo 48/118 informes están re-hosteados todavía (ver DISPONIBLE); el resto queda con el
+// enlace al portal original de SERNAGEOMIN como referencia (sin botón de descarga fetch+blob,
+// porque ese portal no manda CORS y el fetch fallaría).
+function catRColorRegion(nom) {
+  const s = (nom || '').toLowerCase();
+  if (s.includes('atacama')) return '#e8862a';
+  if (s.includes('coquimbo')) return '#3fb950';
+  if (s.includes('valpara')) return '#3b82f6';
+  if (s.includes('metropolitana')) return '#a371f7';
+  return '#9aa4b0';
+}
+function catRBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-catalogo');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+async function descargarPdfCatalogo(btn, m) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Descargando…';
+  try {
+    const r = await fetch(m.enlace, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    downloadBlob(blob, (m.cod || 'informe') + '.pdf');
+  } catch (err) {
+    alert('No se pudo descargar el PDF: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+function catRPopup(m) {
+  const e = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'font-size:.83rem;line-height:1.5;max-width:260px';
+  wrap.innerHTML = `<b>${e(m.cod)}</b><br>`
+    + (m.nombre ? `<span style="color:#666">Nombre:</span> ${e(m.nombre)}<br>` : '')
+    + (m.subtipo ? `<span style="color:#666">Subtipo:</span> ${e(m.subtipo)}<br>` : '')
+    + (m.anio ? `<span style="color:#666">Año evento:</span> ${e(m.anio)}<br>` : '')
+    + `<span style="color:#666">Región:</span> ${e(m.region)}<br>`
+    + (m.fuente ? `<span style="color:#666">Fuente:</span> ${e(m.fuente)}<br>` : '')
+    + (m.autor ? `<span style="color:#666">Autor:</span> ${e(m.autor)}` : '');
+  if (m.disponible) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = '📄 Descargar informe';
+    btn.style.cssText = 'display:inline-block;margin-top:8px;padding:8px 12px;background:#1f6feb;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:.82rem;cursor:pointer';
+    btn.addEventListener('click', () => descargarPdfCatalogo(btn, m));
+    wrap.appendChild(btn);
+  } else {
+    const div = document.createElement('div');
+    div.style.cssText = 'margin-top:8px';
+    div.innerHTML = '<div style="color:#999;font-size:.78rem">Informe aún no disponible en la app</div>';
+    if (m.enlacePortal) {
+      const a = document.createElement('a');
+      a.href = m.enlacePortal; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = '🔗 Ver en portal SERNAGEOMIN';
+      a.style.cssText = 'display:inline-block;margin-top:4px;font-size:.78rem;color:#58a6ff';
+      div.appendChild(a);
+    }
+    wrap.appendChild(div);
+  }
+  return wrap;
+}
+function renderCatalogoRMASA() {
+  if (!catRLayer) return;
+  catRLayer.clearLayers();
+  (catRData || []).forEach(m => {
+    const cm = L.circleMarker([m.lat, m.lon], {
+      renderer: catRCanvas, radius: 5 + EST_RADIO_EXTRA, color: '#fff', weight: 1, fillColor: m.color, fillOpacity: 0.85
+    });
+    cm.bindPopup(() => catRPopup(m), { maxWidth: Math.min(280, window.innerWidth - 50), ...POPUP_AUTOPAN });
+    catRLayer.addLayer(cm);
+  });
+}
+async function cargarCatalogoRMASA(forzar) {
+  if (catRCargando) return;
+  if (catRData && !forzar) { renderCatalogoRMASA(); return; }
+  catRCargando = true;
+  catRBtnEstado('⏳ Catálogo', true);
+  toastMapa('Descargando catálogo RMASA…', 0);
+  try {
+    const buf = await (await fetch(CATR_URL, { cache: 'no-store' })).arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const kmlEntry = zip.file(/\.kml$/i)[0];
+    if (!kmlEntry) throw new Error('El KMZ no contiene ningún archivo .kml.');
+    const kmlText = await kmlEntry.async('string');
+    const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
+    if (doc.querySelector('parsererror')) throw new Error('El KML no es un XML válido.');
+    const dataVal = (pmEl, name) => {
+      const d = Array.from(pmEl.querySelectorAll('ExtendedData > Data')).find(x => x.getAttribute('name') === name);
+      return d ? (d.querySelector('value')?.textContent || '').trim() : '';
+    };
+    catRData = Array.from(doc.querySelectorAll('Placemark')).map(pm => {
+      const coordsTxt = pm.querySelector('Point > coordinates')?.textContent || '';
+      const [lon, lat] = coordsTxt.trim().split(',').map(parseFloat);
+      if (!isFinite(lat) || !isFinite(lon)) return null;
+      const region = dataVal(pm, 'REGION_NOM');
+      return {
+        cod: dataVal(pm, 'COD_RM') || pm.querySelector('name')?.textContent?.trim() || '(sin código)',
+        nombre: dataVal(pm, 'NOMBRE_RM'),
+        subtipo: dataVal(pm, 'SUBTIPO_DESC'),
+        anio: dataVal(pm, 'ANO_EVENTO'),
+        region,
+        fuente: dataVal(pm, 'FUENTE_INFO'),
+        autor: dataVal(pm, 'AUTOR'),
+        enlace: dataVal(pm, 'ENLACE'),
+        enlacePortal: dataVal(pm, 'ENLACE_PORTAL'),
+        disponible: dataVal(pm, 'DISPONIBLE') === '1',
+        color: catRColorRegion(region),
+        lat, lon
+      };
+    }).filter(Boolean);
+    renderCatalogoRMASA();
+    const conPdf = catRData.filter(m => m.disponible).length;
+    toastMapa('📚 ' + catRData.length + ' puntos · ' + conPdf + ' con informe descargable');
+  } catch (err) {
+    console.warn('Catálogo RMASA:', err);
+    toastMapa('⚠️ No se pudo cargar el catálogo RMASA (¿sin conexión?)');
+    catROn = false;
+  } finally {
+    catRCargando = false;
+    catRBtnEstado('📚 Catálogo RMASA', catROn);
+  }
+}
+function toggleCatalogoRMASA() {
+  if (!mapaFull) return;
+  catROn = !catROn;
+  if (catROn) {
+    catRLayer.addTo(mapaFull);
+    catRBtnEstado('📚 Catálogo RMASA', true);
+    cargarCatalogoRMASA(false);
+  } else {
+    mapaFull.removeLayer(catRLayer);
+    catRBtnEstado('📚 Catálogo RMASA', false);
+  }
+}
+
 // ---- Capa "Mapas de peligro" (overlays georreferenciados hosteados en GitHub) ----
 // Fetch on-demand del manifest + L.imageOverlay; los overlays (WebP con transparencia, ya
 // warpeados a plate-carrée) se bajan SOLO al activar la capa y NO se precachean en el SW,
@@ -5680,6 +5831,7 @@ document.getElementById('mapa-estaciones').addEventListener('click', toggleEstac
 document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
 document.getElementById('mapa-temporal').addEventListener('click', toggleTemporal);
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
+document.getElementById('mapa-catalogo').addEventListener('click', toggleCatalogoRMASA);
 document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-ipt').addEventListener('click', toggleIPT);
