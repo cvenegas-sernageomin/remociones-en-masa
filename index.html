@@ -1020,7 +1020,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v67';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v68';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4156,7 +4156,6 @@ function initMapaFull() {
   pcLayer = L.layerGroup();
   tempCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para emergencias del temporal (MOP)
   tempLayer = L.layerGroup();
-  iptCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas para IPT Atacama (~1400 polígonos)
   mapaFull.createPane('peligros');                  // overlays de mapas de peligro: sobre las tiles, bajo los puntos RM
   mapaFull.getPane('peligros').style.zIndex = 350;  // tilePane=200 < 350 < overlayPane=400
   mapaFull.on('click', onMapaFullClick);
@@ -4550,16 +4549,36 @@ function toggleTemporal() {
 // Los JSON por región NO se precachean en sw.js (varios MB c/u): fetch on-demand la 1ª vez con
 // conexión; el cache-first del SW los deja offline después. Mismo criterio que Mapas de peligro.
 // El manifest va network-first en el SW para que las regiones nuevas aparezcan sin bump de versión.
-let iptLayer = null, iptCanvas = null, iptOn = false, iptCtrl = null;
+let iptOn = false, iptCtrl = null;
 let iptManifest = null, iptManifestCargando = false, iptAutoHecho = false;
-const iptRegiones = {};                  // id -> { on, cargando, data, sub: {grupo: L.geoJSON} }
-const iptVisible = { LU: true, PRC: true, PRI: true, ZNE: true, DC: true };   // DC = división comunal (capa nacional, sin checkbox de categoría)
+// Modelo por (region × grupo): cada grupo se descarga en su propio archivo on-demand.
+// iptRegiones[rid] = { on, grupos: { PRC: {archivo, n, data, sub, cargando}, AR: {...}, ... } }
+const iptRegiones = {};
+// Categorías visibles por defecto. AR (áreas de riesgo) arranca APAGADA porque es la capa
+// más pesada (geometrías densas de inundación/remoción) — el usuario la prende cuando la necesita.
+const iptVisible = { LU: true, PRC: true, PRI: true, PRDU: true, AR: false, ZNE: true, DC: true };
+// Orden de dibujo (fondo→tope) → z-index de pane. PRI/PRDU/PRC de fondo; AR y contornos arriba.
+const IPT_ORDEN = ['PRI', 'PRDU', 'PRC', 'AR', 'DC', 'ZNE', 'LU'];
+const iptCanvasG = {};                   // canvas por grupo (cada uno en su pane)
 const IPT_BASE = 'ipt/';
 function iptBtnEstado(txt, activo) {
   const b = document.getElementById('mapa-ipt');
   if (!b) return;
   b.textContent = txt;
   b.classList.toggle('active', !!activo);
+}
+// Crea un pane + canvas por grupo (una vez) para que el z-order sea por CSS y no dependa
+// del orden en que el usuario prende las capas.
+function iptAsegurarPanes() {
+  if (!mapaFull || iptCanvasG.PRI) return;
+  IPT_ORDEN.forEach((g, i) => {
+    const pane = 'ipt-' + g;
+    if (!mapaFull.getPane(pane)) {
+      mapaFull.createPane(pane);
+      mapaFull.getPane(pane).style.zIndex = 351 + i;   // entre tilePane(200) y overlayPane(400)
+    }
+    iptCanvasG[g] = L.canvas({ pane: pane, padding: 0.5, tolerance: TAP_TOLERANCIA });
+  });
 }
 // Color determinístico por clave de zona (hash → matiz HSL): cada zona (Z-C1, AR-2, ZU…)
 // mantiene siempre el mismo color entre sesiones y dispositivos, sin tabla manual.
@@ -4573,14 +4592,20 @@ function iptEstilo(feat) {
   if (p.g === 'DC') return { color: '#f59e0b', weight: 1.4, dashArray: '5 4', fill: false };   // límite comunal: ámbar segmentado
   if (p.g === 'LU') return { color: '#dc2626', weight: 3, dashArray: '6 4', fill: false };
   if (p.g === 'ZNE') return { color: '#7e22ce', weight: 2.5, dashArray: '4 3' };
+  if (p.g === 'AR') return { color: '#b91c1c', weight: 1, fillColor: '#ef4444', fillOpacity: 0.3 };   // área de riesgo: rojo uniforme
   const c = iptColor(p.z || '');
+  if (p.g === 'PRDU') return { color: c, weight: 1, fillColor: c, fillOpacity: 0.12 };
   if (p.g === 'PRI') return { color: c, weight: 1, fillColor: c, fillOpacity: 0.15 };
   return { color: c, weight: 1.5, fillColor: c, fillOpacity: 0.25 };   // PRC
 }
-const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', ZNE: 'Zona no edificable', DC: 'División comunal' };
+const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', PRDU: 'Plan Regional de Desarrollo Urbano', AR: 'Área de riesgo', ZNE: 'Zona no edificable', DC: 'División comunal' };
 function iptNombreRegion(rid) {
   const r = iptManifest && iptManifest.regiones.find(x => x.id === rid);
   return r ? r.nombre : (rid || '');
+}
+function iptZonaDe(p) {
+  const gr = iptRegiones[p.r] && iptRegiones[p.r].grupos[p.g];
+  return (gr && gr.data && gr.data.zonas && gr.data.zonas[p.z]) || {};
 }
 function iptPopup(p) {
   if (p.g === 'DC') {   // división comunal: solo comuna/provincia/región (no tiene diccionario de zonas)
@@ -4590,21 +4615,23 @@ function iptPopup(p) {
     if (partes.length) html += esc2(partes.join(' · '));
     return html;
   }
-  const reg = iptRegiones[p.r];
-  const z = (reg && reg.data && reg.data.zonas && reg.data.zonas[p.z]) || {};
+  const z = iptZonaDe(p);
   const zonaCod = (p.z || '').replace(/^[A-Z]+:/, '').replace(/~\d+$/, '');
-  // El NOMBRE del shapefile suele venir como "Z-F Áreas Verdes" (ya incluye el código):
+  // El NOMBRE suele venir como "Z-F Áreas Verdes" (ya incluye el código):
   // si es así se muestra solo, si no se antepone el código de zona.
   let titulo;
-  if (z.n && (!zonaCod || zonaCod === 'LU' || z.n.startsWith(zonaCod))) titulo = z.n;
+  if (z.n && (!zonaCod || zonaCod === p.g || z.n.startsWith(zonaCod))) titulo = z.n;
   else if (z.n) titulo = zonaCod + ' — ' + z.n;
-  else titulo = zonaCod !== 'LU' ? zonaCod : 'Límite urbano';
-  let html = '<b>🏛️ ' + esc2(titulo) + '</b><br/>';
+  else titulo = (zonaCod && zonaCod !== p.g) ? zonaCod : (IPT_GRUPO_NOMBRE[p.g] || p.g);
+  const emoji = p.g === 'AR' ? '⚠️' : '🏛️';
+  let html = '<b>' + emoji + ' ' + esc2(titulo) + '</b><br/>';
   html += '<small style="color:#8a94a3">' + esc2((IPT_GRUPO_NOMBRE[p.g] || p.g) + ' · ' + iptNombreRegion(p.r)) + '</small><br/>';
   const lugar = [p.com, p.loc].filter((v, i, a) => v && a.indexOf(v) === i).join(' · ');
   if (lugar) html += esc2(lugar) + '<br/>';
+  if (z.i) html += esc2(z.i) + '<br/>';                          // PRDU: descripción general
   if (z.p) html += '<b>Permitido:</b> ' + esc2(z.p) + '<br/>';
   if (z.x) html += '<b>Prohibido:</b> ' + esc2(z.x) + '<br/>';
+  if (z.c) html += '<b>Condiciones:</b> ' + esc2(z.c) + '<br/>';  // PRDU
   if (z.d) html += '<small style="color:#8a94a3">' + esc2(z.d) + '</small>';
   return html;
 }
@@ -4643,11 +4670,14 @@ function iptEnPoligono(latlng, geom) {
 function iptFeaturesEn(latlng) {
   const out = [];
   Object.values(iptRegiones).forEach(reg => {
-    if (!reg.on || !reg.data) return;
-    reg.data.features.forEach(f => {
-      const b = f._bbox;
-      if (!b || latlng.lng < b[0] || latlng.lat < b[1] || latlng.lng > b[2] || latlng.lat > b[3]) return;
-      if (iptEnPoligono(latlng, f.geometry)) out.push(f);
+    if (!reg.on) return;
+    Object.entries(reg.grupos).forEach(([g, gr]) => {
+      if (!gr.data || !iptVisible[g]) return;   // solo grupos cargados y con su categoría visible
+      gr.data.features.forEach(f => {
+        const b = f._bbox;
+        if (!b || latlng.lng < b[0] || latlng.lat < b[1] || latlng.lng > b[2] || latlng.lat > b[3]) return;
+        if (iptEnPoligono(latlng, f.geometry)) out.push(f);
+      });
     });
   });
   return out;
@@ -4661,25 +4691,22 @@ function onIptClick(e) {
   // las ZNE son líneas (el ray casting no las encuentra): si se tocó una directamente, va primero
   if (clicked && !feats.includes(clicked)) feats.unshift(clicked);
   if (!feats.length) return;
-  const orden = { PRC: 0, ZNE: 1, PRI: 2, LU: 3, DC: 4 };   // la comuna al final (lo menos específico)
-  feats.sort((a, b) => (orden[a.properties.g] ?? 1) - (orden[b.properties.g] ?? 1));
+  const orden = { AR: 0, PRC: 1, ZNE: 2, PRI: 3, PRDU: 4, LU: 5, DC: 6 };   // riesgo primero, comuna al final
+  feats.sort((a, b) => (orden[a.properties.g] ?? 3) - (orden[b.properties.g] ?? 3));
   const MAX = 8;
   let html = feats.slice(0, MAX).map(f => iptPopup(f.properties || {})).join('<hr style="margin:7px 0;border:none;border-top:1px solid #d1d5db"/>');
   if (feats.length > MAX) html += '<hr style="margin:7px 0;border:none;border-top:1px solid #d1d5db"/><small style="color:#8a94a3">…y ' + (feats.length - MAX) + ' zonas más en este punto.</small>';
   L.popup({ maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN })
     .setLatLng(e.latlng).setContent(html).openOn(mapaFull);
 }
-// Aplica visibilidad: agrega/quita cada sub-capa según región activa + categoría visible,
-// recorriendo en orden de dibujo (PRI extenso al fondo, PRC encima, ZNE y LU al tope).
+// Aplica visibilidad: agrega/quita cada sub-capa (region×grupo) según región activa + categoría visible.
 function iptAplicarVisibilidad() {
-  if (!iptLayer) return;
-  ['PRI', 'PRC', 'ZNE', 'DC', 'LU'].forEach(g => {
-    Object.values(iptRegiones).forEach(reg => {
-      const sl = reg.sub && reg.sub[g];
-      if (!sl) return;
+  Object.values(iptRegiones).forEach(reg => {
+    Object.entries(reg.grupos).forEach(([g, gr]) => {
+      if (!gr.sub) return;
       const debe = reg.on && iptVisible[g];
-      if (debe && !iptLayer.hasLayer(sl)) iptLayer.addLayer(sl);
-      if (!debe && iptLayer.hasLayer(sl)) iptLayer.removeLayer(sl);
+      if (debe && !mapaFull.hasLayer(gr.sub)) gr.sub.addTo(mapaFull);
+      if (!debe && mapaFull.hasLayer(gr.sub)) mapaFull.removeLayer(gr.sub);
     });
   });
 }
@@ -4687,57 +4714,56 @@ function iptBoundsRegion(rid) {
   const r = iptManifest && iptManifest.regiones.find(x => x.id === rid);
   return r ? L.latLngBounds([r.bbox[1], r.bbox[0]], [r.bbox[3], r.bbox[2]]) : null;
 }
-// Descarga y arma las sub-capas de una región (una vez; queda en memoria y en el cache del SW).
-async function cargarRegionIPT(rid) {
+// Descarga UN grupo (region×categoría) de su propio archivo. Cada grupo se baja solo cuando
+// su región está activa Y su categoría visible → en terreno bajas solo lo que realmente miras.
+async function cargarGrupoIPT(rid, g) {
   const reg = iptRegiones[rid];
-  if (!reg || reg.cargando || reg.data) return;
-  reg.cargando = true;
+  const gr = reg && reg.grupos[g];
+  if (!gr || gr.cargando || gr.data) return;
+  gr.cargando = true;
   iptRenderPanel();
-  const info = iptManifest.regiones.find(r => r.id === rid);
-  toastMapa('Cargando IPT ' + info.nombre + '…', 0);
   try {
-    const resp = await fetch(IPT_BASE + info.archivo, { cache: 'force-cache' });
+    const resp = await fetch(IPT_BASE + gr.archivo, { cache: 'force-cache' });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    data.features.forEach(f => { f._bbox = iptBBox(f.geometry); f.properties.r = rid; });
-    reg.data = data;
-    reg.sub = {};
-    ['PRI', 'PRC', 'ZNE', 'DC', 'LU'].forEach(g => {
-      const fs = data.features.filter(f => f.properties.g === g);
-      if (!fs.length) return;
-      const sl = L.geoJSON({ type: 'FeatureCollection', features: fs }, { renderer: iptCanvas, style: iptEstilo });
-      sl.on('click', onIptClick);
-      reg.sub[g] = sl;
-    });
+    data.features.forEach(f => { f._bbox = iptBBox(f.geometry); f.properties.r = rid; f.properties.g = g; });
+    gr.data = data;
+    gr.sub = L.geoJSON(data, { pane: 'ipt-' + g, renderer: iptCanvasG[g], style: iptEstilo });
+    gr.sub.on('click', onIptClick);
     iptAplicarVisibilidad();
-    if (reg.on) {
-      const bb = iptBoundsRegion(rid);
-      if (bb && !mapaFull.getBounds().intersects(bb)) mapaFull.fitBounds(bb, { padding: [30, 30] });
-      toastMapa('🏛️ IPT ' + info.nombre + ': ' + data.features.length.toLocaleString('es-CL') + ' zonas. Toca una zona para ver sus usos.');
-    }
   } catch (err) {
-    console.warn('IPT ' + rid + ':', err);
-    reg.on = false;
-    toastMapa('⚠️ No se pudo cargar IPT ' + info.nombre + ' (¿sin conexión la 1ª vez?)');
+    console.warn('IPT ' + rid + '/' + g + ':', err);
+    toastMapa('⚠️ No se pudo cargar ' + (IPT_GRUPO_NOMBRE[g] || g) + ' de ' + iptNombreRegion(rid) + ' (¿sin conexión?)');
   } finally {
-    reg.cargando = false;
+    gr.cargando = false;
     iptRenderPanel();
   }
 }
-// Panel del mapa: checkboxes de regiones (del manifest) + categorías LU/PRC/PRI/ZNE.
+// Baja todos los grupos de una región cuya categoría esté visible (los pesados sólo si su
+// checkbox de categoría está prendido, p.ej. AR arranca apagado).
+function cargarGruposVisibles(rid) {
+  const reg = iptRegiones[rid];
+  Object.keys(reg.grupos).forEach(g => { if (iptVisible[g]) cargarGrupoIPT(rid, g); });
+}
+// Panel del mapa: checkboxes de regiones (del manifest) + categorías. AR (áreas de riesgo)
+// se muestra con ⚠️ y arranca apagada por ser la capa más pesada.
 // Colores sólidos (NO var(--fg)/var(--border): gotcha recurrente de variables CSS indefinidas).
-const IPT_GRUPOS_PANEL = [['PRC', 'PRC (planes comunales)'], ['PRI', 'PRI (intercomunal)'], ['ZNE', 'Zonas no edificables'], ['LU', 'Límites urbanos']];
+const IPT_GRUPOS_PANEL = [['PRC', 'PRC (planes comunales)'], ['PRI', 'PRI (intercomunal)'], ['PRDU', 'PRDU (regional)'], ['AR', '⚠️ Áreas de riesgo'], ['ZNE', 'Zonas no edificables'], ['LU', 'Límites urbanos']];
 function iptRenderPanel() {
   if (!iptCtrl || !iptCtrl._div) return;
   const div = iptCtrl._div;
   const lbl = 'display:block;cursor:pointer;color:#111';
+  // grupos existentes en alguna región (para no mostrar categorías que ninguna región tiene)
+  const dispon = new Set();
+  (iptManifest ? iptManifest.regiones : []).forEach(r => (r.grupos || []).forEach(x => dispon.add(x.g)));
   const regionesHtml = (iptManifest ? iptManifest.regiones : []).map(r => {
     const reg = iptRegiones[r.id] || {};
+    const cargando = Object.values(reg.grupos || {}).some(gr => gr.cargando);
     return '<label style="' + lbl + '"><input type="checkbox" data-region="' + r.id + '"' +
-      (reg.on ? ' checked' : '') + (reg.cargando ? ' disabled' : '') +
-      ' style="margin-right:6px;transform:scale(1.15)">' + esc2(r.nombre) + (reg.cargando ? ' ⏳' : '') + '</label>';
+      (reg.on ? ' checked' : '') +
+      ' style="margin-right:6px;transform:scale(1.15)">' + esc2(r.nombre) + (cargando ? ' ⏳' : '') + '</label>';
   }).join('');
-  const catsHtml = IPT_GRUPOS_PANEL.map(([g, nom]) =>
+  const catsHtml = IPT_GRUPOS_PANEL.filter(([g]) => dispon.has(g)).map(([g, nom]) =>
     '<label style="' + lbl + '"><input type="checkbox" data-g="' + g + '"' + (iptVisible[g] ? ' checked' : '') +
     ' style="margin-right:6px;transform:scale(1.15)">' + nom + '</label>').join('');
   div.innerHTML = '<b style="font-size:.8rem">🏛️ IPT — Regiones</b><br>' + regionesHtml +
@@ -4746,17 +4772,19 @@ function iptRenderPanel() {
   div.querySelectorAll('input[data-region]').forEach(cb => cb.addEventListener('change', () => {
     const rid = cb.dataset.region, reg = iptRegiones[rid];
     reg.on = cb.checked;
-    if (cb.checked && !reg.data) cargarRegionIPT(rid);
-    else {
+    if (cb.checked) {
+      cargarGruposVisibles(rid);
       iptAplicarVisibilidad();
-      if (cb.checked) {
-        const bb = iptBoundsRegion(rid);
-        if (bb && !mapaFull.getBounds().intersects(bb)) mapaFull.fitBounds(bb, { padding: [30, 30] });
-      }
+      const bb = iptBoundsRegion(rid);
+      if (bb && !mapaFull.getBounds().intersects(bb)) mapaFull.fitBounds(bb, { padding: [30, 30] });
+    } else {
+      iptAplicarVisibilidad();
     }
   }));
   div.querySelectorAll('input[data-g]').forEach(cb => cb.addEventListener('change', () => {
-    iptVisible[cb.dataset.g] = cb.checked;
+    const g = cb.dataset.g;
+    iptVisible[g] = cb.checked;
+    if (cb.checked) Object.keys(iptRegiones).forEach(rid => { if (iptRegiones[rid].on) cargarGrupoIPT(rid, g); });
     iptAplicarVisibilidad();
   }));
 }
@@ -4784,7 +4812,11 @@ async function cargarIPT() {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       iptManifest = await resp.json();
       iptManifest.regiones.forEach(r => {
-        if (!iptRegiones[r.id]) iptRegiones[r.id] = { on: false, cargando: false, data: null, sub: null };
+        if (!iptRegiones[r.id]) {
+          const grupos = {};
+          (r.grupos || []).forEach(x => { grupos[x.g] = { archivo: x.archivo, n: x.n, data: null, sub: null, cargando: false }; });
+          iptRegiones[r.id] = { on: false, grupos: grupos };
+        }
       });
     } catch (err) {
       console.warn('IPT manifest:', err);
@@ -4797,11 +4829,10 @@ async function cargarIPT() {
     iptManifestCargando = false;
   }
   if (!iptOn) return;                 // el usuario lo apagó mientras cargaba el manifest
-  if (!iptLayer) iptLayer = L.featureGroup();
-  iptLayer.addTo(mapaFull);
+  iptAsegurarPanes();
   iptCrearControl();
   // Auto-selección (solo la 1ª activación): regiones cuyo bbox toca la vista actual;
-  // si ninguna toca y hay una sola región disponible, esa.
+  // si ninguna toca y hay una sola región "real" (auto≠false), esa.
   if (!iptAutoHecho) {
     iptAutoHecho = true;
     const vista = mapaFull.getBounds();
@@ -4814,8 +4845,9 @@ async function cargarIPT() {
     if (!alguna && autoRegs.length === 1) iptRegiones[autoRegs[0].id].on = true;
   }
   iptRenderPanel();
+  // baja lo que falte y re-agrega al mapa lo que ya estaba cargado (tras un toggle general off→on)
+  Object.keys(iptRegiones).forEach(rid => { if (iptRegiones[rid].on) cargarGruposVisibles(rid); });
   iptAplicarVisibilidad();
-  Object.entries(iptRegiones).forEach(([rid, reg]) => { if (reg.on && !reg.data) cargarRegionIPT(rid); });
   iptBtnEstado('🏛️ IPT', true);
 }
 function toggleIPT() {
@@ -4825,7 +4857,9 @@ function toggleIPT() {
     iptBtnEstado('⏳ IPT', true);
     cargarIPT();
   } else {
-    if (iptLayer) mapaFull.removeLayer(iptLayer);
+    Object.values(iptRegiones).forEach(reg => Object.values(reg.grupos).forEach(gr => {
+      if (gr.sub && mapaFull.hasLayer(gr.sub)) mapaFull.removeLayer(gr.sub);
+    }));
     if (iptCtrl) { mapaFull.removeControl(iptCtrl); iptCtrl = null; }
     iptBtnEstado('🏛️ IPT', false);
   }
@@ -5507,7 +5541,7 @@ function legendaMapa() {
     <b>→ 40</b> lineación / estría (flecha = trend, valor = plunge)<br>
     símbolo en <b style="color:#b02a1a">rojo</b> = estructura tipo falla<br>
     líneas: <b style="color:#c0392b">corona</b>, <b style="color:#d35400">depósito</b>, <b style="color:#16739e">canal</b>… (guion = inferido, punteado = cubierto)<br>
-    IPT: <b style="color:#dc2626">╌╌</b> límite urbano · polígonos de color = zonas PRC/PRI (toca para ver usos permitidos/prohibidos; regiones y categorías en su panel)<br><br>
+    IPT: <b style="color:#dc2626">╌╌</b> límite urbano · <b style="color:#ef4444">▨</b> área de riesgo · polígonos de color = zonas PRC/PRI/PRDU (toca para ver usos; regiones y categorías en su panel)<br><br>
     Toca una RM para abrir su ficha; toca una línea para editarla.</div>
     <button id="lg-close" style="margin-top:12px;padding:10px 14px;border:none;border-radius:8px;background:var(--red,#c0392b);color:#fff;cursor:pointer;width:100%">Cerrar</button>`;
   ov.appendChild(box); document.body.appendChild(ov);

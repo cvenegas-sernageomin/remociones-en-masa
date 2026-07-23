@@ -3,29 +3,101 @@
   {
    "id": "atacama",
    "nombre": "Atacama",
-   "archivo": "ipt_atacama.json",
    "bbox": [
     -71.5901,
     -29.1849,
     -70.0146,
     -25.9601
    ],
+   "grupos": [
+    {
+     "g": "LU",
+     "archivo": "atacama_LU.json",
+     "n": 13
+    },
+    {
+     "g": "PRC",
+     "archivo": "atacama_PRC.json",
+     "n": 796
+    },
+    {
+     "g": "PRI",
+     "archivo": "atacama_PRI.json",
+     "n": 563
+    },
+    {
+     "g": "ZNE",
+     "archivo": "atacama_ZNE.json",
+     "n": 35
+    }
+   ],
    "n": 1407,
    "generado": "2026-07-23"
   },
   {
+   "id": "coquimbo",
+   "nombre": "Coquimbo",
+   "bbox": [
+    -71.7191,
+    -32.2822,
+    -69.8091,
+    -29.0377
+   ],
+   "grupos": [
+    {
+     "g": "AR",
+     "archivo": "coquimbo_AR.json",
+     "n": 1454
+    },
+    {
+     "g": "LU",
+     "archivo": "coquimbo_LU.json",
+     "n": 52
+    },
+    {
+     "g": "PRC",
+     "archivo": "coquimbo_PRC.json",
+     "n": 5508
+    },
+    {
+     "g": "PRDU",
+     "archivo": "coquimbo_PRDU.json",
+     "n": 488
+    },
+    {
+     "g": "PRI",
+     "archivo": "coquimbo_PRI.json",
+     "n": 324
+    },
+    {
+     "g": "ZNE",
+     "archivo": "coquimbo_ZNE.json",
+     "n": 72
+    }
+   ],
+   "n": 7898,
+   "generado": "2026-07-23",
+   "fuente": "MINVU"
+  },
+  {
    "id": "division_comunal",
    "nombre": "División comunal (Chile)",
-   "archivo": "division_comunal.json",
    "bbox": [
     -109.4618,
     -55.98,
     -66.4182,
     -17.4989
    ],
+   "grupos": [
+    {
+     "g": "DC",
+     "archivo": "division_comunal_DC.json",
+     "n": 346
+    }
+   ],
    "n": 346,
-   "auto": false,
-   "generado": "2026-07-23"
+   "generado": "2026-07-23",
+   "auto": false
   }
  ]
 }
