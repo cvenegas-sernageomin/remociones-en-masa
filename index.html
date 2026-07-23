@@ -935,7 +935,7 @@ body.map-mode #nav-buttons { display: none !important; }
   <div id="mapa-full"></div>
   <div id="mapa-fab">
     <button class="map-btn map-btn-sm" id="mapa-gps" title="Centrar en mi ubicación (GPS)" aria-label="GPS">📡</button>
-    <button class="map-btn" id="mapa-linea">✏️ Línea</button>
+    <button class="map-btn map-btn-sm" id="mapa-linea" title="Dibujar línea geológica en el mapa" aria-label="Dibujar línea">✏️</button>
     <button class="map-btn map-btn-sm" id="mapa-tiles" title="Descargar tiles del mapa para uso sin conexión" aria-label="Descargar tiles">⬇️</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
     <span class="map-btn-stack">
@@ -949,6 +949,10 @@ body.map-mode #nav-buttons { display: none !important; }
       <small class="map-btn-src">SERNAGEOMIN</small>
     </span>
     <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
+    <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-ipt" title="Instrumentos de Planificación Territorial de Atacama: límites urbanos, planes reguladores comunales y PRI costero">🏛️ IPT</button>
+      <small class="map-btn-src">Atacama</small>
+    </span>
     <button class="map-btn" id="mapa-kmz" title="Cargar un KMZ o KML propio como capa del mapa">📂 KMZ</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
@@ -1016,7 +1020,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v63';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v65';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2500,10 +2504,18 @@ async function estacionMasCercana(lat, lon) {
     return mejor ? { nombre: mejor.base || mejor.nombre, distKm: mejorD } : null;
   } catch (e) { console.warn('Estación más cercana:', e); return null; }
 }
-// Estima la lluvia acumulada 24 h/48 h/7 días en el punto GPS con Open-Meteo (modelo, CORS libre, sin token).
-// SIEMPRE acumula hasta AHORA (tiempo real): en terreno importa la lluvia que lleva caída al
-// momento de la inspección. (Antes cortaba en la "fecha de inicio" del evento del formulario
-// y los acumulados salían congelados en días previos — bug reportado con fecha 15-jul.)
+// Estima la lluvia acumulada 24 h/48 h/7 días en el punto GPS con Open-Meteo (modelo/ERA5, CORS
+// libre, sin token). La ventana se cuenta hacia atrás desde la FECHA/HORA DEL EVENTO (campos
+// fecha-inicio + hora-inicio), no desde "ahora": lo que importa para el informe RETERM es la
+// lluvia previa a la ocurrencia de la remoción. Si el usuario marcó un rango, fecha-inicio ya es
+// la fecha más antigua del rango, así que se usa tal cual. Si no hay fecha de evento registrada
+// (RM aún sin fecha), cae a "ahora" como aproximación y lo indica en el texto de fuente.
+// (Antes, en v47, se cambió a acumular siempre "hasta ahora" para evitar acumulados congelados
+// cuando el usuario dejaba la fecha de inicio desactualizada; ahora el propio flujo exige volver
+// a referenciar al evento — la solución correcta al problema de v47 es que el usuario mantenga
+// fecha-inicio al día, no anclar el cálculo a la hora de la consulta.)
+// Elige API según antigüedad del evento: forecast (modelo, hasta ~6 días atrás) o archive (ERA5,
+// eventos más antiguos) — mismo criterio que fetchLluviaSerieParaGrafico() para el gráfico del informe.
 // Siempre editable a mano. Además muestra la estación real más cercana como referencia.
 async function estimarLluviaGPS() {
   const coords = getCoords();
@@ -2513,21 +2525,38 @@ async function estimarLluviaGPS() {
   const estacionEl = document.getElementById('lluvia-estacion');
   const txt0 = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Consultando…';
   try {
-    const end = new Date();          // tiempo real: hasta este momento
-    const daysBack = 8;              // ventana de 7 días + margen
-    const u = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&hourly=precipitation&past_days=${daysBack}&forecast_days=1&timezone=auto`;
+    const ONE_DAY = 86400000;
+    const now = new Date();
+    const fechaInicio = document.getElementById('fecha-inicio')?.value;
+    const horaInicio = document.getElementById('hora-inicio')?.value || '12:00';
+    let end = fechaInicio ? new Date(fechaInicio + 'T' + horaInicio + ':00') : null;
+    const sinFecha = !end || isNaN(end.getTime());
+    if (sinFecha || end.getTime() > now.getTime()) end = now;
+    const daysBack = 8;              // ventana de 7 días + margen antes del evento
+    const daysSinceEnd = Math.max(0, Math.round((now.getTime() - end.getTime()) / ONE_DAY));
+    let u;
+    if (daysSinceEnd <= 6) {
+      const pastDaysTotal = Math.min(92, daysSinceEnd + daysBack);
+      u = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&hourly=precipitation&past_days=${pastDaysTotal}&forecast_days=1&timezone=auto`;
+    } else {
+      const startDate = new Date(end.getTime() - daysBack * ONE_DAY);
+      const iso = dt => dt.toISOString().slice(0, 10);
+      u = `https://archive-api.open-meteo.com/v1/archive?latitude=${coords.lat}&longitude=${coords.lng}&start_date=${iso(startDate)}&end_date=${iso(end)}&hourly=precipitation&timezone=auto`;
+    }
     const d = await (await fetch(u)).json();
     const t = d.hourly?.time || [], p = d.hourly?.precipitation || [];
     if (!t.length) throw new Error('sin datos');
     let idx = -1;
     for (let i = 0; i < t.length; i++) { if (new Date(t[i]).getTime() <= end.getTime()) idx = i; else break; }
-    if (idx < 0) idx = t.length - 1;
+    if (idx < 0) idx = 0;
     const suma = n => { let s = 0; for (let i = Math.max(0, idx - n + 1); i <= idx; i++) s += (p[i] || 0); return Math.round(s * 10) / 10; };
     document.getElementById('lluvia-24h').value = suma(24);
     document.getElementById('lluvia-48h').value = suma(48);
     document.getElementById('lluvia-7d').value = suma(24 * 7);
     const cuando = new Date(t[idx]).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    fuente.textContent = `Estimación Open-Meteo (modelo, en el punto GPS) hasta ${cuando} — tiempo real. Ajusta si tienes dato de estación.`;
+    fuente.textContent = sinFecha
+      ? `Estimación Open-Meteo (modelo, en el punto GPS) hasta ${cuando} — sin fecha de evento registrada, se usó el momento actual. Ajusta si tienes dato de estación.`
+      : `Estimación Open-Meteo (${daysSinceEnd <= 6 ? 'modelo' : 'ERA5 reanálisis'}, en el punto GPS) respecto al momento del evento (${cuando}). Ajusta si tienes dato de estación.`;
     if (estacionEl) {
       estacionEl.textContent = 'Buscando estación más cercana…';
       const cercana = await estacionMasCercana(coords.lat, coords.lng);
@@ -3037,6 +3066,7 @@ async function generateRETERM(record, ret) {
     // y sombreado si el usuario marcó rango. Serie: Open-Meteo modelo (o ERA5 si es histórico).
     // Si falla el fetch, no se incluye — no bloquea el informe.
     let figuraLluvia = null;
+    let tasaHorariaEvento = null;   // mm/h en la hora del evento, leída de la misma serie del gráfico
     if (data.coords) {
       try {
         const serie = await fetchLluviaSerieParaGrafico(data.coords.lat, data.coords.lng, data['fecha-inicio'], data['fecha-fin']);
@@ -3044,6 +3074,13 @@ async function generateRETERM(record, ret) {
           const iniISO = data['fecha-inicio'] ? (data['fecha-inicio'] + 'T' + (data['hora-inicio'] || '12:00') + ':00') : null;
           const finISO = data['fecha-fin'] ? (data['fecha-fin'] + 'T' + (data['hora-fin'] || data['hora-inicio'] || '12:00') + ':00') : null;
           figuraLluvia = renderLluviaChartPNG(serie, iniISO, finISO, data.coords);
+          if (iniISO && serie.hourly?.length) {
+            const evtMs = new Date(iniISO).getTime();
+            let mejor = null, mejorDiff = Infinity;
+            serie.hourly.forEach(h => { const diff = Math.abs(h.t - evtMs); if (diff < mejorDiff) { mejorDiff = diff; mejor = h; } });
+            // solo si la hora horaria encontrada está a <90 min del evento (evita mostrar el dato de otro día)
+            if (mejor && mejorDiff <= 90 * 60000) tasaHorariaEvento = Math.round(mejor.mm * 10) / 10;
+          }
         }
       } catch (e) { console.warn('Figura lluvia:', e); }
     }
@@ -3104,6 +3141,7 @@ async function generateRETERM(record, ret) {
       const estacionTxt = estacionFrase ? ` La estación de referencia más cercana es ${esc(estacionFrase[1].trim())}.` : '';
       obsPartes.push(`La precipitación acumulada previa al evento fue de ${partes.join(', ')}${estim}.${estacionTxt}`);
     }
+    if (tasaHorariaEvento != null) obsPartes.push(`La tasa de precipitación horaria estimada (Open-Meteo) al momento del evento fue de ${tasaHorariaEvento} mm/h.`);
     if (morfoTexto) obsPartes.push(esc(morfoTexto) + '.');
     if (data.litologia) {
       let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
@@ -3312,9 +3350,10 @@ async function generateRETERM(record, ret) {
     const figLettersAll = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'];
     const figLetters = lluviaRid ? figLettersAll.slice(1) : figLettersAll;
     const hayRangoEvento = !!(data['fecha-fin'] && data['fecha-fin'] > data['fecha-inicio']);
-    const lluviaCaption = hayRangoEvento
+    const tasaTxt = tasaHorariaEvento != null ? ` Tasa horaria al momento del evento: ${tasaHorariaEvento} mm/h.` : '';
+    const lluviaCaption = (hayRangoEvento
       ? 'Figura B. Precipitación acumulada en el punto (desde 1 día antes del inicio hasta el fin del evento). Línea roja: momento del inicio; banda: rango del evento. Fuente: Open-Meteo (modelo).'
-      : 'Figura B. Precipitación acumulada en el punto (3 días previos al evento). Línea roja: momento del evento. Fuente: Open-Meteo (modelo).';
+      : 'Figura B. Precipitación acumulada en el punto (3 días previos al evento). Línea roja: momento del evento. Fuente: Open-Meteo (modelo).') + tasaTxt;
     const lluviaRow = lluviaRid
       ? fullRow(
         wP(wImg(lluviaRid, lluviaCx, lluviaCy, 950, 'Lluvia'), { align: 'center', after: 40 })
@@ -4117,6 +4156,7 @@ function initMapaFull() {
   pcLayer = L.layerGroup();
   tempCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para emergencias del temporal (MOP)
   tempLayer = L.layerGroup();
+  iptCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas para IPT Atacama (~1400 polígonos)
   mapaFull.createPane('peligros');                  // overlays de mapas de peligro: sobre las tiles, bajo los puntos RM
   mapaFull.getPane('peligros').style.zIndex = 350;  // tilePane=200 < 350 < overlayPane=400
   mapaFull.on('click', onMapaFullClick);
@@ -4497,6 +4537,104 @@ function toggleTemporal() {
     clearTimeout(tempMoveTimer);
     mapaFull.removeLayer(tempLayer);
     tempBtnEstado('🌊 Emergencia (MOP)', false);
+  }
+}
+
+// ---- IPT Atacama (Instrumentos de Planificación Territorial) ----
+// Capa fija para todos los usuarios: límites urbanos (LU), planes reguladores comunales (PRC),
+// PRI costero y zonas no edificables de Huasco (ZNE), convertidos de los shapefiles oficiales
+// con tools/generar_ipt_atacama.py → ipt_atacama.json (GeoJSON compacto: geometrías simplificadas
+// 2–10 m + diccionario "zonas" deduplicado con nombre/usos permitidos/prohibidos por zona).
+// NO se precachea en sw.js (≈7 MB): fetch on-demand la 1ª vez con conexión; el cache-first del SW
+// lo deja disponible offline después. Mismo criterio que la capa de Mapas de peligro.
+let iptLayer = null, iptCanvas = null, iptOn = false, iptData = null, iptCargando = false;
+const IPT_URL = 'ipt_atacama.json';
+function iptBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-ipt');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+// Color determinístico por clave de zona (hash → matiz HSL): cada zona (Z-C1, AR-2, ZU…)
+// mantiene siempre el mismo color entre sesiones y dispositivos, sin tabla manual.
+function iptColor(zk) {
+  let h = 0;
+  for (let i = 0; i < zk.length; i++) h = (h * 31 + zk.charCodeAt(i)) >>> 0;
+  return 'hsl(' + (h % 360) + ',65%,48%)';
+}
+function iptEstilo(feat) {
+  const p = feat.properties || {};
+  if (p.g === 'LU') return { color: '#dc2626', weight: 3, dashArray: '6 4', fill: false };
+  if (p.g === 'ZNE') return { color: '#7e22ce', weight: 2.5, dashArray: '4 3' };
+  const c = iptColor(p.z || '');
+  if (p.g === 'PRI') return { color: c, weight: 1, fillColor: c, fillOpacity: 0.15 };
+  return { color: c, weight: 1.5, fillColor: c, fillOpacity: 0.25 };   // PRC
+}
+const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'PRI Costero Atacama', ZNE: 'Zona no edificable (PRC Huasco)' };
+function iptPopup(p) {
+  const z = (iptData && iptData.zonas && iptData.zonas[p.z]) || {};
+  const zonaCod = (p.z || '').replace(/^[A-Z]+:/, '').replace(/~\d+$/, '');
+  // El NOMBRE del shapefile suele venir como "Z-F Áreas Verdes" (ya incluye el código):
+  // si es así se muestra solo, si no se antepone el código de zona.
+  let titulo;
+  if (z.n && (!zonaCod || zonaCod === 'LU' || z.n.startsWith(zonaCod))) titulo = z.n;
+  else if (z.n) titulo = zonaCod + ' — ' + z.n;
+  else titulo = zonaCod !== 'LU' ? zonaCod : 'Límite urbano';
+  let html = '<b>🏛️ ' + esc2(titulo) + '</b><br/>';
+  html += '<small style="color:#8a94a3">' + esc2(IPT_GRUPO_NOMBRE[p.g] || p.g) + '</small><br/>';
+  const lugar = [p.com, p.loc].filter((v, i, a) => v && a.indexOf(v) === i).join(' · ');
+  if (lugar) html += esc2(lugar) + '<br/>';
+  if (z.p) html += '<b>Permitido:</b> ' + esc2(z.p) + '<br/>';
+  if (z.x) html += '<b>Prohibido:</b> ' + esc2(z.x) + '<br/>';
+  if (z.d) html += '<small style="color:#8a94a3">' + esc2(z.d) + '</small>';
+  return html;
+}
+async function cargarIPT() {
+  if (iptCargando) return;
+  if (iptData) { if (iptLayer && iptOn) iptLayer.addTo(mapaFull); return; }
+  iptCargando = true;
+  iptBtnEstado('⏳ IPT', true);
+  toastMapa('Cargando IPT Atacama (≈2.5 MB la primera vez)…', 0);
+  try {
+    const resp = await fetch(IPT_URL, { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    iptData = await resp.json();
+    // Orden de dibujo: PRI (extenso) al fondo, PRC encima, ZNE y LU (solo contorno) al tope
+    const orden = { PRI: 0, PRC: 1, ZNE: 2, LU: 3 };
+    iptData.features.sort((a, b) => (orden[a.properties.g] ?? 1) - (orden[b.properties.g] ?? 1));
+    iptLayer = L.geoJSON(iptData, {
+      renderer: iptCanvas,
+      style: iptEstilo,
+      onEachFeature: (feat, lyr) => {
+        lyr.bindPopup(() => iptPopup(feat.properties || {}),
+          { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+      }
+    });
+    if (!iptOn) return;               // el usuario lo apagó mientras cargaba
+    iptLayer.addTo(mapaFull);
+    // Si la vista actual no toca Atacama, encuadrar la capa (solo la 1ª vez)
+    const bb = iptLayer.getBounds();
+    if (bb.isValid() && !mapaFull.getBounds().intersects(bb)) mapaFull.fitBounds(bb, { padding: [30, 30] });
+    toastMapa('🏛️ IPT Atacama: ' + iptData.features.length.toLocaleString('es-CL') + ' zonas (LU + PRC + PRI). Toca una zona para ver sus usos.');
+  } catch (err) {
+    console.warn('IPT Atacama:', err);
+    toastMapa('⚠️ No se pudo cargar la capa IPT (¿sin conexión la 1ª vez?)');
+    iptOn = false;
+  } finally {
+    iptCargando = false;
+    iptBtnEstado('🏛️ IPT', iptOn);
+  }
+}
+function toggleIPT() {
+  if (!mapaFull) return;
+  iptOn = !iptOn;
+  if (iptOn) {
+    iptBtnEstado('⏳ IPT', true);
+    cargarIPT();
+    if (iptLayer && iptData) { iptBtnEstado('🏛️ IPT', true); }
+  } else {
+    if (iptLayer) mapaFull.removeLayer(iptLayer);
+    iptBtnEstado('🏛️ IPT', false);
   }
 }
 
@@ -5175,7 +5313,8 @@ function legendaMapa() {
     <b>—⊢ 30</b> rumbo/manteo de una estructura (tick al lado del manteo, valor en grados)<br>
     <b>→ 40</b> lineación / estría (flecha = trend, valor = plunge)<br>
     símbolo en <b style="color:#b02a1a">rojo</b> = estructura tipo falla<br>
-    líneas: <b style="color:#c0392b">corona</b>, <b style="color:#d35400">depósito</b>, <b style="color:#16739e">canal</b>… (guion = inferido, punteado = cubierto)<br><br>
+    líneas: <b style="color:#c0392b">corona</b>, <b style="color:#d35400">depósito</b>, <b style="color:#16739e">canal</b>… (guion = inferido, punteado = cubierto)<br>
+    IPT Atacama: <b style="color:#dc2626">╌╌</b> límite urbano · polígonos de color = zonas PRC/PRI (toca para ver usos permitidos/prohibidos)<br><br>
     Toca una RM para abrir su ficha; toca una línea para editarla.</div>
     <button id="lg-close" style="margin-top:12px;padding:10px 14px;border:none;border-radius:8px;background:var(--red,#c0392b);color:#fff;cursor:pointer;width:100%">Cerrar</button>`;
   ov.appendChild(box); document.body.appendChild(ov);
@@ -5300,6 +5439,7 @@ document.getElementById('mapa-temporal').addEventListener('click', toggleTempora
 document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
 document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
+document.getElementById('mapa-ipt').addEventListener('click', toggleIPT);
 document.getElementById('mapa-kmz').addEventListener('click', onBotonKmz);
 document.getElementById('input-kmz-mapa').addEventListener('change', e => {
   if (e.target.files[0]) cargarKmzArchivo(e.target.files[0]);
