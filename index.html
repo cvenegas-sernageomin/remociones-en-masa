@@ -1074,7 +1074,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v82';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v83';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -5741,7 +5741,7 @@ function toggleIPT() {
 // se baja on-demand (fetch de infra/<sector>_<id>.json) recién al marcar su checkbox —
 // igual filosofía que IPT: nada se precarga, "Red Vial" (capa pesada, ~1.8 MB gzip) parte
 // apagada como AR en IPT. ----
-let infraOn = false, infraManifest = null, infraManifestCargando = false, infraCtrl = null;
+let infraOn = false, infraManifest = null, infraManifestCargando = false, infraCtrl = null, infraColapsado = false;
 const infraCapas = {};              // id -> {def, data, cargando, sub}
 const INFRA_BASE = 'infra/';
 let infraCanvasR = null;            // un solo renderer canvas compartido (pane 'infra')
@@ -5849,28 +5849,39 @@ function infraCrearControl() {
 }
 // Panel: un bloque por sector (icono+nombre, color sólido — NO var(--fg)/var(--border):
 // gotcha recurrente de variables CSS indefinidas) con sus capas como checkboxes debajo.
+// Encabezado clicable con chevron ▾/▸ para contraer el panel (queda tapando buena parte
+// del mapa con sus 7 sectores/30 capas — a diferencia del panel de IPT, mucho más chico,
+// acá hace falta poder achicarlo sin tener que apagar la capa completa).
 function infraRenderPanel() {
   if (!infraCtrl || !infraCtrl._div || !infraManifest) return;
   const div = infraCtrl._div;
   const lbl = 'display:block;cursor:pointer;color:#111;padding:1px 0';
-  const bySector = {};
-  infraManifest.capas.forEach(c => { (bySector[c.sector] = bySector[c.sector] || []).push(c); });
-  let html = '<b style="font-size:.8rem">🏗️ Infraestructura Crítica</b><br>';
-  Object.keys(infraManifest.sectores).forEach(sid => {
-    const defs = bySector[sid]; if (!defs || !defs.length) return;
-    const sec = infraManifest.sectores[sid];
-    html += '<div style="border-top:1px solid #e5e7eb;margin:5px 0 2px;padding-top:4px">' +
-      '<b style="font-size:.72rem;color:' + esc2(sec.color) + '">' + sec.icon + ' ' + esc2(sec.label) + '</b></div>';
-    defs.forEach(c => {
-      const cap = infraCapas[c.id] || {};
-      const cont = cap.cargando ? ' ⏳' : (cap.data ? ' <span style="color:#8a94a3">(' + cap.data.features.length + ')</span>' : '');
-      const warn = c.pesada ? ' <span style="color:#c0392b">(capa pesada)</span>' : '';
-      html += '<label style="' + lbl + '"><input type="checkbox" data-infra="' + c.id + '"' +
-        (cap.on ? ' checked' : '') + ' style="margin-right:6px;transform:scale(1.1)">' +
-        esc2(c.label) + warn + cont + '</label>';
+  let html = '<div style="display:flex;align-items:center;gap:6px;cursor:pointer" id="infra-toggle-colapso">' +
+    '<b style="font-size:.8rem">🏗️ Infraestructura Crítica</b>' +
+    '<span style="margin-left:auto;color:#6b7280;font-size:.8rem">' + (infraColapsado ? '▸' : '▾') + '</span></div>';
+  if (!infraColapsado) {
+    const bySector = {};
+    infraManifest.capas.forEach(c => { (bySector[c.sector] = bySector[c.sector] || []).push(c); });
+    Object.keys(infraManifest.sectores).forEach(sid => {
+      const defs = bySector[sid]; if (!defs || !defs.length) return;
+      const sec = infraManifest.sectores[sid];
+      html += '<div style="border-top:1px solid #e5e7eb;margin:5px 0 2px;padding-top:4px">' +
+        '<b style="font-size:.72rem;color:' + esc2(sec.color) + '">' + sec.icon + ' ' + esc2(sec.label) + '</b></div>';
+      defs.forEach(c => {
+        const cap = infraCapas[c.id] || {};
+        const cont = cap.cargando ? ' ⏳' : (cap.data ? ' <span style="color:#8a94a3">(' + cap.data.features.length + ')</span>' : '');
+        const warn = c.pesada ? ' <span style="color:#c0392b">(capa pesada)</span>' : '';
+        html += '<label style="' + lbl + '"><input type="checkbox" data-infra="' + c.id + '"' +
+          (cap.on ? ' checked' : '') + ' style="margin-right:6px;transform:scale(1.1)">' +
+          esc2(c.label) + warn + cont + '</label>';
+      });
     });
-  });
+  }
   div.innerHTML = html;
+  div.querySelector('#infra-toggle-colapso').addEventListener('click', () => {
+    infraColapsado = !infraColapsado;
+    infraRenderPanel();
+  });
   div.querySelectorAll('input[data-infra]').forEach(cb => cb.addEventListener('change', () => {
     toggleInfraCapa(cb.dataset.infra, cb.checked);
   }));
