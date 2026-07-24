@@ -471,6 +471,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <option>Desconocido</option>
       <option>Otro</option>
     </select>
+    <input type="text" class="otro-spec" data-para="desencadenante" placeholder="Especifica cuál (obligatorio)" style="display:none;margin-top:6px">
   </div>
 
   <!-- Precipitación acumulada (solo si el desencadenante es lluvia) -->
@@ -531,6 +532,7 @@ body.map-mode #nav-buttons { display: none !important; }
         <option>Otro</option>
       </optgroup>
     </select>
+    <input type="text" class="otro-spec" data-para="tipo-movimiento" placeholder="Especifica el tipo (obligatorio)" style="display:none;margin-top:6px">
   </div>
 </div>
 
@@ -621,6 +623,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <option>Ladera de depósito volcánico</option>
       <option>Otro</option>
     </select>
+    <input type="text" class="otro-spec" data-para="tipo-ladera" placeholder="Especifica el tipo de ladera (obligatorio)" style="display:none;margin-top:6px">
   </div>
 
   <div class="field">
@@ -672,6 +675,7 @@ body.map-mode #nav-buttons { display: none !important; }
         <option>Otro (suelo)</option>
       </optgroup>
     </select>
+    <input type="text" class="otro-spec" data-para="litologia" placeholder="Especifica la litología (obligatorio)" style="display:none;margin-top:6px">
   </div>
 
   <div class="field">
@@ -774,6 +778,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <option>Canal</option>
       <option>Otro</option>
     </select>
+    <input type="text" class="otro-spec" data-para="antropico" placeholder="Especifica la intervención (obligatorio)" style="display:none;margin-top:6px">
   </div>
 </div>
 
@@ -811,6 +816,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <button type="button" class="chip" data-val="electrica">Línea eléctrica</button>
       <button type="button" class="chip" data-val="otro">Otro</button>
     </div>
+    <input type="text" id="infra-otro-spec" placeholder="Especifica qué infraestructura (obligatorio)" style="display:none;margin-top:6px">
   </div>
 
   <div class="field">
@@ -1031,7 +1037,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v72';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v73';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1156,6 +1162,60 @@ document.getElementById('personas-afectadas').addEventListener('change', functio
   const show = ['Evacuados', 'Heridos', 'Fallecidos'].includes(this.value);
   document.getElementById('num-personas').style.display = show ? 'block' : 'none';
 });
+
+// ---- Campos "Otro": exigir especificación --------------------------------------
+// Un "Otro" suelto no dice nada en el informe ("El evento fue desencadenado por otro").
+// Cada select con opción Otro/Otros/Otro (suelo) tiene al lado un <input class="otro-spec"
+// data-para="<id del select>"> que aparece solo al elegir esa opción, y su texto REEMPLAZA
+// a "Otro" al construir la ficha (ver valorConOtro/collectFormData). Es obligatorio: la
+// validación al finalizar la RM no deja emitir el Word con un "Otro" sin especificar.
+function esOtro(v) { return /^otros?\b/i.test((v || '').trim()); }
+function otroSpecEl(idSelect) { return document.querySelector(`.otro-spec[data-para="${idSelect}"]`); }
+// Valor final de un select con opción "Otro": el texto especificado, si lo hay.
+function valorConOtro(idSelect) {
+  const sel = document.getElementById(idSelect);
+  if (!sel) return '';
+  const v = sel.value || '';
+  if (!esOtro(v)) return v;
+  const spec = (otroSpecEl(idSelect)?.value || '').trim();
+  return spec || v;
+}
+function sincronizarOtroSpec(idSelect) {
+  const sel = document.getElementById(idSelect);
+  const inp = otroSpecEl(idSelect);
+  if (!sel || !inp) return;
+  const mostrar = esOtro(sel.value);
+  inp.style.display = mostrar ? 'block' : 'none';
+  if (!mostrar) inp.value = '';
+}
+const CAMPOS_CON_OTRO = ['desencadenante', 'tipo-movimiento', 'tipo-ladera', 'litologia', 'antropico'];
+CAMPOS_CON_OTRO.forEach(id => {
+  const sel = document.getElementById(id);
+  if (sel) sel.addEventListener('change', () => sincronizarOtroSpec(id));
+});
+// El chip "Otro" de infraestructura es toggle, no select: se observa el grupo completo.
+function sincronizarInfraOtro() {
+  const inp = document.getElementById('infra-otro-spec');
+  if (!inp) return;
+  const activo = getChipsValues('infra-chips').includes('otro');
+  inp.style.display = activo ? 'block' : 'none';
+  if (!activo) inp.value = '';
+}
+document.getElementById('infra-chips')?.addEventListener('click', () => setTimeout(sincronizarInfraOtro, 0));
+// Devuelve la lista de campos con "Otro" elegido pero sin especificar (para la validación).
+function otrosSinEspecificar() {
+  const faltan = [];
+  CAMPOS_CON_OTRO.forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel && esOtro(sel.value) && !(otroSpecEl(id)?.value || '').trim()) {
+      faltan.push(sel.closest('.field')?.querySelector('label')?.textContent.replace(/\s*\?$/, '').trim() || id);
+    }
+  });
+  if (getChipsValues('infra-chips').includes('otro') && !(document.getElementById('infra-otro-spec')?.value || '').trim()) {
+    faltan.push('Infraestructura afectada');
+  }
+  return faltan;
+}
 
 // =====================
 // MORFOMETRÍA — dinámica según tipo de movimiento
@@ -2131,6 +2191,28 @@ const ETIQUETAS = {
 };
 function etiq(cod) { return ETIQUETAS[cod] || cod || ''; }
 function etiqLista(arr, sep = ', ') { return (arr || []).map(etiq).join(sep); }
+
+// ---- Concordancia singular/plural en las personas afectadas ----------------------
+// El select guarda siempre la categoría en plural ('Evacuados'), así que con 1 persona
+// salía "se reportan evacuados (1 personas)". Se redacta según el número informado.
+const PERSONAS_SINGULAR = { Evacuados: 'evacuado', Heridos: 'herido', Fallecidos: 'fallecido' };
+// Frase de personas afectadas concordada. n vacío ⇒ sin número, se mantiene el plural genérico.
+function frasePersonas(categoria, n) {
+  if (!categoria || categoria === 'Sin afectados') return '';
+  const num = parseInt(n, 10);
+  const plural = categoria.toLowerCase();
+  const singular = PERSONAS_SINGULAR[categoria] || plural;
+  if (!Number.isFinite(num) || num <= 0) return `se reportan ${plural}`;
+  return num === 1 ? `se reporta 1 ${singular}` : `se reportan ${num} ${plural}`;
+}
+// Versión corta para tablas del KMZ/RETERM: "1 evacuado" / "3 evacuados" / "Evacuados".
+function textoPersonas(categoria, n) {
+  if (!categoria) return null;
+  if (categoria === 'Sin afectados') return categoria;
+  const num = parseInt(n, 10);
+  if (!Number.isFinite(num) || num <= 0) return categoria;
+  return num === 1 ? `1 ${PERSONAS_SINGULAR[categoria] || categoria.toLowerCase()}` : `${num} ${categoria.toLowerCase()}`;
+}
 // 'sin-estructuras' no es una estructura: es la ausencia de ellas. Sirve para saber si tiene
 // sentido hablar de "control estructural" (ver conclusiones), donde antes se comparaba el
 // código contra la etiqueta y por eso el filtro nunca se activaba.
@@ -2146,7 +2228,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   const escapeXml = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const coords = data.coords;
   const zona = data.zona || 'generacion';
-  const tipo = data['tipo-movimiento'] || 'Otro';
+  const tipo = campoTxt(data, 'tipo-movimiento') || 'Otro';
   const iconFile = `icons/${TIPO_ICON_MAP[tipo] || 'otro'}.png`;
   const kmlColor = ZONA_COLOR[zona] || ZONA_COLOR.generacion;
 
@@ -2205,7 +2287,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Fecha del evento', fechaStr)}
   ${row('Hora', horaStr)}
   ${row('Fecha de inspección', (() => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data['fecha-inspeccion'] || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : data['fecha-inspeccion']; })())}
-  ${row('Desencadenante', data.desencadenante)}
+  ${row('Desencadenante', campoTxt(data, 'desencadenante'))}
 </table>
 <h3 style="color:#555;margin-top:12px">📐 Morfometría</h3>
 <table style="border-collapse:collapse;width:100%">${morfoRows || '<tr><td style="color:#aaa;padding:4px 8px">No registrada</td></tr>'}</table>
@@ -2220,11 +2302,11 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 </table>
 <h3 style="color:#555;margin-top:12px">⛰️ Zona de Generación / Talud / Escarpe</h3>
 <table style="border-collapse:collapse;width:100%">
-  ${row('Tipo de ladera', data['tipo-ladera'])}
+  ${row('Tipo de ladera', campoTxt(data, 'tipo-ladera'))}
   ${row('Geometría ladera', data['geometria-ladera']?.length ? etiqLista(data['geometria-ladera']) : null)}
   ${row('Estado del escarpe', data['estado-escarpe'])}
   ${(data['grietas-traccion'] || []).map((g, i) => row(`Grieta de tracción ${i + 1}`, `Largo ${g.largo || '?'} m · Apertura ${g.apertura || '?'} cm · Salto ${g.salto || '?'} cm · Dist. escarpe ${g.distEscarpe || '?'} m`)).join('')}
-  ${row('Litología dominante', data.litologia)}
+  ${row('Litología dominante', campoTxt(data, 'litologia'))}
   ${row('Suelo sobre roca', data['suelo-adicional'])}
   ${row('Alteración / meteorización', data['grado-alteracion'])}
   ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
@@ -2238,13 +2320,13 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Estación de referencia', data['lluvia-estacion'] || null)}
   ${row('Lluvia previa intensa', data['lluvia-previa'])}
   ${row('Sismo previo', data['sismo-previo'] ? (data['sismo-previo'] + (data['sismo-magnitud'] ? ` (Mw ${data['sismo-magnitud']})` : '')) : null)}
-  ${row('Intervención antrópica', data.antropico)}
+  ${row('Intervención antrópica', campoTxt(data, 'antropico'))}
 </table>
 <h3 style="color:#555;margin-top:12px">⚠️ Contexto de riesgo</h3>
 <table style="border-collapse:collapse;width:100%">
   ${data.amenaza ? `<tr><td style="color:#888;padding:4px 8px;white-space:nowrap"><b>Amenaza activa</b></td><td style="padding:4px 8px"><span style="${amenazaStyle}">${amenazaLabel}</span></td></tr>` : ''}
-  ${row('Personas afectadas', data['personas-afectadas'] + (data['num-personas'] ? ` (${data['num-personas']})` : ''))}
-  ${row('Infraestructura', data.infraestructura?.length ? etiqLista(data.infraestructura) : null)}
+  ${row('Personas afectadas', textoPersonas(data['personas-afectadas'], data['num-personas']))}
+  ${row('Infraestructura', infraTxt(data))}
   ${row('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
 </table>
 ${data.efectos ? `<h3 style="color:#555;margin-top:12px">📝 Efectos</h3><p>${escapeHtml(data.efectos)}</p>` : ''}
@@ -3057,7 +3139,28 @@ function collectFormData() {
     localidad: document.getElementById('localidad')?.value,
     'n-antecedente': document.getElementById('n-antecedente')?.value,
     'n-reterm': document.getElementById('n-reterm')?.value,
+    // Especificaciones de los "Otro". Se guardan APARTE del valor del select (no lo pisan)
+    // porque el valor crudo es el que restaura el <select> al reabrir la RM y, en el caso de
+    // tipo-movimiento, el que decide qué campos de morfometría se muestran (getTipoGroup).
+    // El texto que ve el usuario en los documentos lo arma campoTxt().
+    ...Object.fromEntries(CAMPOS_CON_OTRO.map(id => [id + '-otro', (otroSpecEl(id)?.value || '').trim()])),
+    'infra-otro': (document.getElementById('infra-otro-spec')?.value || '').trim(),
   };
+}
+// Texto de un campo con opción "Otro" para documentos: la especificación si la hay, si no
+// el valor del select tal cual. Mantiene el informe legible sin romper la lógica interna.
+function campoTxt(data, id) {
+  const v = data[id] || '';
+  const spec = (data[id + '-otro'] || '').trim();
+  return (esOtro(v) && spec) ? spec : v;
+}
+// Infraestructura: igual que campoTxt pero sobre la lista de chips — el chip 'otro' se
+// reemplaza por lo que el usuario especificó ("Otro" a secas no informa nada en el RETERM).
+function infraTxt(data) {
+  const arr = data.infraestructura || [];
+  if (!arr.length) return null;
+  const spec = (data['infra-otro'] || '').trim();
+  return arr.map(c => (c === 'otro' && spec) ? spec : etiq(c)).join(', ');
 }
 
 function latLonToUTM(lat, lon) {
@@ -3255,7 +3358,11 @@ async function generateRETERM(record, ret) {
     const estado = data.amenaza === 'si' ? 'Activo' : data.amenaza === 'no' ? 'Inactivo' : data.amenaza === 'incierta' ? 'En evaluación' : 'No evaluado';
     const region = data.region || 'XXXX';
     const regionCorta = region.replace(/\s*\(.*\)/, '').toUpperCase();
-    const tipo = data['tipo-movimiento'] || 'remoción en masa';
+    // Textos con "Otro" ya resuelto a lo que el usuario especificó (ver campoTxt).
+    const tipo = campoTxt(data, 'tipo-movimiento') || 'remoción en masa';
+    const desencadenanteTxt = campoTxt(data, 'desencadenante');
+    const litologiaTxt = campoTxt(data, 'litologia');
+    const tipoLaderaTxt = campoTxt(data, 'tipo-ladera');
     const localidad = data.localidad || '___';
     const antecedente = data['n-antecedente'] || '—';
     const nReterm = (data['n-reterm'] || 'XX').padStart(2, '0');
@@ -3283,7 +3390,7 @@ async function generateRETERM(record, ret) {
     // Observaciones auto
     const obsPartes = [];
     obsPartes.push(`En el sector de ${esc(localidad)}${data.comuna ? ', comuna de ' + esc(data.comuna) : ''}${data.region ? ', Región de ' + esc(data.region.replace(/\s*\(.*\)/, '')) : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
-    if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
+    if (desencadenanteTxt) obsPartes.push(`El evento fue desencadenado por ${esc(desencadenanteTxt.toLowerCase())}.`);
     if (data['lluvia-24h'] || data['lluvia-48h'] || data['lluvia-7d']) {
       const partes = [];
       if (data['lluvia-24h']) partes.push(`${esc(data['lluvia-24h'])} mm en 24 h`);
@@ -3296,8 +3403,8 @@ async function generateRETERM(record, ret) {
     }
     if (tasaHorariaEvento != null) obsPartes.push(`La tasa de precipitación horaria estimada (Open-Meteo) al momento del evento fue de ${tasaHorariaEvento} mm/h.`);
     if (morfoTexto) obsPartes.push(esc(morfoTexto) + '.');
-    if (data.litologia) {
-      let litFrase = `La litología dominante corresponde a ${esc(data.litologia)}`;
+    if (litologiaTxt) {
+      let litFrase = `La litología dominante corresponde a ${esc(litologiaTxt)}`;
       if (data['grado-alteracion']) litFrase += `, con ${esc(data['grado-alteracion'].toLowerCase())}`;
       obsPartes.push(litFrase + '.');
     }
@@ -3318,8 +3425,14 @@ async function generateRETERM(record, ret) {
       obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
     }
     if ((data['grietas-traccion'] || []).length) {
-      const gStr = data['grietas-traccion'].map((g, i) => `grieta ${i + 1}: largo ${g.largo || '?'} m, apertura ${g.apertura || '?'} cm, salto ${g.salto || '?'} cm, a ${g.distEscarpe || '?'} m del escarpe`).join('; ');
-      obsPartes.push(`Se identifican grietas de tracción en la zona de generación (${esc(gStr)}), lo que indica un proceso de inestabilidad activo o incipiente.`);
+      const gs = data['grietas-traccion'];
+      // con una sola grieta no corresponde numerarla ni hablar en plural
+      const gStr = gs.length === 1
+        ? (g => `largo ${g.largo || '?'} m, apertura ${g.apertura || '?'} cm, salto ${g.salto || '?'} cm, a ${g.distEscarpe || '?'} m del escarpe`)(gs[0])
+        : gs.map((g, i) => `grieta ${i + 1}: largo ${g.largo || '?'} m, apertura ${g.apertura || '?'} cm, salto ${g.salto || '?'} cm, a ${g.distEscarpe || '?'} m del escarpe`).join('; ');
+      obsPartes.push(gs.length === 1
+        ? `Se identifica una grieta de tracción en la zona de generación (${esc(gStr)}), lo que indica un proceso de inestabilidad activo o incipiente.`
+        : `Se identifican ${gs.length} grietas de tracción en la zona de generación (${esc(gStr)}), lo que indica un proceso de inestabilidad activo o incipiente.`);
     }
     if (data.efectos) obsPartes.push(esc(data.efectos));
     if (data.otros) obsPartes.push(esc(data.otros));
@@ -3329,7 +3442,7 @@ async function generateRETERM(record, ret) {
     // SOLO si el dato fue registrado (no inventa). Encadena: mecanismo/material → magnitud →
     // condicionantes y desencadenante → estado y condición observada con elementos expuestos → proyección.
     // NO clasifica un nivel de peligro (alto/moderado/bajo): eso lo califica el geólogo (ver punto 4).
-    const infra = data.infraestructura?.length ? etiqLista(data.infraestructura) : null;
+    const infra = infraTxt(data);
     const personas = data['personas-afectadas'];
     const nPers = data['num-personas'];
     const distViv = data['dist-vivienda'];
@@ -3343,11 +3456,11 @@ async function generateRETERM(record, ret) {
     {
       const lugar = [localidad && localidad !== '___' ? esc(localidad) : null, data.comuna ? 'comuna de ' + esc(data.comuna) : null, data.region ? 'Región de ' + esc(region.replace(/\s*\(.*\)/, '')) : null].filter(Boolean).join(', ');
       let f = `El evento corresponde a una remoción en masa de tipo ${esc(tipo)}${lugar ? ', registrada en ' + lugar : ''}`;
-      if (data['tipo-ladera']) f += `, desarrollada sobre una ladera ${esc(data['tipo-ladera'].toLowerCase())}`;
+      if (tipoLaderaTxt) f += `, desarrollada sobre una ladera ${esc(tipoLaderaTxt.toLowerCase())}`;
       if (data['geometria-ladera']?.length) f += ` de geometría ${esc(etiqLista(data['geometria-ladera'], '/'))}`;
       concluParts.push(f + '.');
       const mat = [];
-      if (data.litologia) mat.push(esc(data.litologia.toLowerCase()));
+      if (litologiaTxt) mat.push(esc(litologiaTxt.toLowerCase()));
       if (data['grado-alteracion']) mat.push(`con ${esc(data['grado-alteracion'])}`);
       if (data.granulometria?.length) mat.push(`de granulometría dominante ${esc(etiqLista(data.granulometria))}`);
       if (data.humedad) mat.push(`en estado ${esc(data.humedad.toLowerCase())}`);
@@ -3376,7 +3489,7 @@ async function generateRETERM(record, ret) {
       if (data.humedad === 'Saturado' || data.humedad === 'Fluidizado') cond.push('la saturación del material');
       if (cond.length) concluParts.push(`Entre los factores condicionantes se reconocen ${cond.join(', ')}.`);
 
-      let des = data.desencadenante ? `El desencadenante corresponde a ${esc(data.desencadenante.toLowerCase())}` : '';
+      let des = desencadenanteTxt ? `El desencadenante corresponde a ${esc(desencadenanteTxt.toLowerCase())}` : '';
       const lluvia = [];
       if (data['lluvia-24h']) lluvia.push(`${esc(data['lluvia-24h'])} mm en 24 h`);
       if (data['lluvia-48h']) lluvia.push(`${esc(data['lluvia-48h'])} mm en 48 h`);
@@ -3386,7 +3499,9 @@ async function generateRETERM(record, ret) {
       if (data['sismo-previo'] === 'Sí' && data['sismo-magnitud']) des += `${des ? '; ' : 'Se reporta '}un sismo previo de magnitud ${esc(data['sismo-magnitud'])}`;
       if (des) concluParts.push(des + '.');
 
-      if ((data['grietas-traccion'] || []).length) concluParts.push('La presencia de grietas de tracción en la corona evidencia un proceso de inestabilidad activo o incipiente.');
+      if ((data['grietas-traccion'] || []).length) concluParts.push(data['grietas-traccion'].length === 1
+        ? 'La presencia de una grieta de tracción en la corona evidencia un proceso de inestabilidad activo o incipiente.'
+        : 'La presencia de grietas de tracción en la corona evidencia un proceso de inestabilidad activo o incipiente.');
     }
 
     // 4) Estado y elementos expuestos — se describe la condición observada, SIN clasificar
@@ -3412,7 +3527,7 @@ async function generateRETERM(record, ret) {
       const exp = [];
       if (distViv) exp.push(`la vivienda más cercana se ubica a ${esc(distViv)} m del depósito`);
       if (infra) exp.push(`la infraestructura expuesta incluye ${esc(infra)}`);   // etiqLista ya entrega el texto redactado
-      if (personas && personas !== 'Sin afectados') exp.push(`se reportan ${esc(personas.toLowerCase())}${nPers ? ` (${esc(nPers)} personas)` : ''}`);
+      { const fp = frasePersonas(personas, nPers); if (fp) exp.push(esc(fp)); }
       if (exp.length) concluParts.push(`En cuanto a elementos expuestos, ${exp.join('; ')}.`);
     }
 
@@ -3498,7 +3613,7 @@ async function generateRETERM(record, ret) {
       ['COORDENADAS (UTM WGS84)', coordStr],
       ['DÍA EVENTO', fechaStr],
       ['FECHA DE INSPECCIÓN', fechaInspStr || 'No registrada'],
-      ['DESENCADENANTE', data.desencadenante || 'No registrado'],
+      ['DESENCADENANTE', desencadenanteTxt || 'No registrado'],
       ['ESTADO', estado],
       ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', areaVol],
       ['ANTECEDENTE', antecedente],
@@ -3830,6 +3945,12 @@ async function saveCurrentRM() {
   // getCoords() NUNCA es null (el marcador parte en el centro de Santiago por defecto):
   // hay que validar markerPlaced o la RM se guardaría silenciosamente en -33.45,-70.65.
   if (!markerPlaced || !getCoords()) { alert('Marca la ubicación de la RM antes de finalizar (📍 GPS o arrastra el marcador en el mapa del Paso 1).'); return; }
+  // Un "Otro" sin especificar deja el informe diciendo "desencadenado por otro" — se exige antes de emitir.
+  const faltanOtros = otrosSinEspecificar();
+  if (faltanOtros.length) {
+    alert('Especifica a qué corresponde "Otro" en: ' + faltanOtros.join(', ') + '.');
+    return;
+  }
   try {
     const rec = await buildRMRecord();
     // Upsert por ID: si ya existe una RM con este id (reintento tras un error de generación,
@@ -3928,6 +4049,9 @@ function resetFormForNewRM() {
   clearToggle('amenaza-toggle');
   clearToggle('plasticidad-toggle');
   ['granulometria-chips', 'componentes-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips', 'recom-chips'].forEach(clearChips);
+  // los inputs de "Otro" se ocultan y vacían solos al no estar seleccionada esa opción
+  CAMPOS_CON_OTRO.forEach(sincronizarOtroSpec);
+  sincronizarInfraOtro();
   document.getElementById('estructuras-dip-list').innerHTML = '';
   document.getElementById('grietas-list').innerHTML = '';
   updateMorfoFields('');
@@ -3988,6 +4112,15 @@ function populateForm(rec) {
     const el = document.getElementById(id);
     if (el) el.dispatchEvent(new Event('change'));
   });
+  // Especificaciones de "Otro": primero mostrar/ocultar el input según el select restaurado
+  // (sincronizar lo limpia si no aplica) y RECIÉN ahí reponer el texto guardado.
+  CAMPOS_CON_OTRO.forEach(id => {
+    sincronizarOtroSpec(id);
+    const inp = otroSpecEl(id);
+    if (inp && d[id + '-otro']) inp.value = d[id + '-otro'];
+  });
+  sincronizarInfraOtro();
+  { const io = document.getElementById('infra-otro-spec'); if (io && d['infra-otro']) io.value = d['infra-otro']; }
   const list = document.getElementById('estructuras-dip-list');
   list.innerHTML = '';
   (d['estructuras-dip'] || []).forEach(e => {
@@ -4185,9 +4318,9 @@ async function generateCombinedKMZ() {
       // Ancho fijo 720 px para que el globo se vea cómodo en Google Earth Pro (PC).
       const desc = `<![CDATA[<div style="width:720px;font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.45">
 <h3 style="color:#e63946">${esc(d.id || ('RM ' + (i + 1)))}</h3>
-<p><b>Tipo:</b> ${esc(d['tipo-movimiento'] || '—')}</p>
+<p><b>Tipo:</b> ${esc(campoTxt(d, 'tipo-movimiento') || '—')}</p>
 <p><b>Localidad:</b> ${esc(d.localidad || '—')} &nbsp; <b>Comuna:</b> ${esc(d.comuna || '—')} &nbsp; <b>Región:</b> ${esc(d.region || '—')}</p>
-<p><b>Fecha:</b> ${esc(d['fecha-inicio'] || '—')} &nbsp; <b>Desencadenante:</b> ${esc(d.desencadenante || '—')}</p>
+<p><b>Fecha:</b> ${esc(d['fecha-inicio'] || '—')} &nbsp; <b>Desencadenante:</b> ${esc(campoTxt(d, 'desencadenante') || '—')}</p>
 <p><b>Estado:</b> ${esc(estado)}</p>
 <p><b>Coordenadas:</b> ${c.lat.toFixed(6)}, ${lng.toFixed(6)}</p>
 ${fotosHtml}
