@@ -965,9 +965,8 @@ body.map-mode #nav-buttons { display: none !important; }
       <small class="map-btn-src">SENAPRED</small>
     </span>
     <button class="map-btn" id="mapa-temporal" title="Emergencias activas por el temporal de jul-2026 (MOP): Atacama, Coquimbo y Valparaíso">🌊 Emergencia (MOP)</button>
-    <button class="map-btn" id="mapa-minutas" title="Minutas Técnicas ATG Flash (SERNAGEOMIN)">📄 Minutas</button>
     <span class="map-btn-stack">
-      <button class="map-btn" id="mapa-catalogo" title="Catálogo histórico de Remociones en Masa (RMASA) con informes técnicos en PDF: Atacama, Coquimbo, Valparaíso y Metropolitana">📚 Catálogo RMASA</button>
+      <button class="map-btn" id="mapa-informes" title="Informes técnicos SERNAGEOMIN: Minutas Técnicas ATG Flash (eventos recientes) + Catálogo histórico de Remociones en Masa (RMASA) con PDF descargables">📄 Informes</button>
       <small class="map-btn-src">SERNAGEOMIN</small>
     </span>
     <span class="map-btn-stack">
@@ -1046,7 +1045,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v76';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v77';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -5652,12 +5651,17 @@ function minFamiliaColor(t) {
   if (/erosi|desborde|grieta/.test(s))          return '#3fb950';   // erosión / otros
   return '#9aa4b0';                                                 // sin clasificar
 }
-function minBtnEstado(txt, activo) {
-  const b = document.getElementById('mapa-minutas');
+// Minutas y Catálogo RMASA comparten un único botón "📄 Informes": su estado (texto y clase
+// active) refleja AMBAS capas. minBtnEstado/catRBtnEstado se conservan como puntos de entrada
+// desde cargarMinutas()/cargarCatalogoRMASA() (que pasan su propio texto de carga), pero ahora
+// solo delegan en esta función combinada — así el botón muestra ⏳ mientras cualquiera baja.
+function actualizarBtnInformes() {
+  const b = document.getElementById('mapa-informes');
   if (!b) return;
-  b.textContent = txt;
-  b.classList.toggle('active', !!activo);
+  b.textContent = (minCargando || catRCargando) ? '⏳ Informes' : '📄 Informes';
+  b.classList.toggle('active', minOn || catROn);
 }
+function minBtnEstado() { actualizarBtnInformes(); }
 // Descarga el PDF como blob (en vez de target="_blank") porque las PWA instaladas
 // en modo standalone (típico en iOS) no pueden abrir pestañas nuevas — el link
 // con target="_blank" simplemente no hacía nada al tocarlo.
@@ -5763,17 +5767,18 @@ async function cargarMinutas(forzar) {
     minBtnEstado('📄 Minutas', minOn);
   }
 }
-function toggleMinutas() {
+// Un solo botón enciende/apaga las dos capas de informes a la vez. Si cualquiera está activa,
+// el toque las apaga ambas (estado combinado): así el botón siempre invierte lo que se ve.
+function toggleInformes() {
   if (!mapaFull) return;
-  minOn = !minOn;
-  if (minOn) {
-    minLayer.addTo(mapaFull);
-    minBtnEstado('📄 Minutas', true);
-    cargarMinutas(false);
-  } else {
-    mapaFull.removeLayer(minLayer);
-    minBtnEstado('📄 Minutas', false);
-  }
+  const encender = !(minOn || catROn);
+  // Minutas ATG Flash (servicio en vivo)
+  if (encender && !minOn) { minOn = true; minLayer.addTo(mapaFull); cargarMinutas(false); }
+  else if (!encender && minOn) { minOn = false; mapaFull.removeLayer(minLayer); }
+  // Catálogo RMASA (histórico estático)
+  if (encender && !catROn) { catROn = true; catRLayer.addTo(mapaFull); cargarCatalogoRMASA(false); }
+  else if (!encender && catROn) { catROn = false; mapaFull.removeLayer(catRLayer); }
+  actualizarBtnInformes();
 }
 
 // ---- Capa "Catálogo RMASA" (catálogo histórico estático, KMZ re-hosteado en informes-rmasa) ----
@@ -5789,12 +5794,7 @@ function catRColorRegion(nom) {
   if (s.includes('metropolitana')) return '#a371f7';
   return '#9aa4b0';
 }
-function catRBtnEstado(txt, activo) {
-  const b = document.getElementById('mapa-catalogo');
-  if (!b) return;
-  b.textContent = txt;
-  b.classList.toggle('active', !!activo);
-}
+function catRBtnEstado() { actualizarBtnInformes(); }   // comparte el botón "Informes" (ver actualizarBtnInformes)
 async function descargarPdfCatalogo(btn, m) {
   const original = btn.textContent;
   btn.disabled = true;
@@ -5905,19 +5905,6 @@ async function cargarCatalogoRMASA(forzar) {
     catRBtnEstado('📚 Catálogo RMASA', catROn);
   }
 }
-function toggleCatalogoRMASA() {
-  if (!mapaFull) return;
-  catROn = !catROn;
-  if (catROn) {
-    catRLayer.addTo(mapaFull);
-    catRBtnEstado('📚 Catálogo RMASA', true);
-    cargarCatalogoRMASA(false);
-  } else {
-    mapaFull.removeLayer(catRLayer);
-    catRBtnEstado('📚 Catálogo RMASA', false);
-  }
-}
-
 // ---- Capa "Mapas de peligro" (overlays georreferenciados hosteados en GitHub) ----
 // Fetch on-demand del manifest + L.imageOverlay; los overlays (WebP con transparencia, ya
 // warpeados a plate-carrée) se bajan SOLO al activar la capa y NO se precachean en el SW,
@@ -6364,8 +6351,7 @@ document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
 document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
 document.getElementById('mapa-temporal').addEventListener('click', toggleTemporal);
-document.getElementById('mapa-minutas').addEventListener('click', toggleMinutas);
-document.getElementById('mapa-catalogo').addEventListener('click', toggleCatalogoRMASA);
+document.getElementById('mapa-informes').addEventListener('click', toggleInformes);
 document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-ipt').addEventListener('click', toggleIPT);
