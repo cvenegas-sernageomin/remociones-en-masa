@@ -56,6 +56,15 @@
    "pesada": false
   },
   {
+   "id": "canales",
+   "sector": "agua",
+   "label": "Canales de Riego",
+   "archivo": "agua_canales.json",
+   "kind": "line",
+   "n": 12233,
+   "pesada": true
+  },
+  {
    "id": "establecimientos_educacion",
    "sector": "educacion",
    "label": "Establecimientos Educacionales",

@@ -6,9 +6,11 @@ capas KML ya recopiladas en el repo fallas-activas-chile (proyecto hermano, mism
   infra/<sector>_<id>.json   una capa (FeatureCollection compacto)
   infra/manifest.json        índice: sectores (icono/color) + capas (id, archivo, n, tipo)
 
-30 capas en 7 sectores (agua, energía, relaves, salud, seguridad, transporte, educación),
+31 capas en 7 sectores (agua, energía, relaves, salud, seguridad, transporte, educación),
 mismo agrupamiento y colores que fallas-activas-chile/visor-web/index.html (SECTORES/
-LAYER_DEFS) para que quien ya conoce ese visor reconozca la misma paleta acá.
+LAYER_DEFS) para que quien ya conoce ese visor reconozca la misma paleta acá. Una
+excepción: "canales" (agua) no viene de ese repo — es un shapefile nacional aparte
+(Sernageomin_Emergencia 2026/canales_nacional_final), usa 'ruta_abs' en vez de 'archivo'.
 
 OJO ENCODING: los KML de origen declaran encoding="utf-8" en su prólogo XML y los bytes
 son UTF-8 real (verificado a mano) — NO forzar cp1252 ni ningún otro encoding al leerlos
@@ -47,6 +49,10 @@ SECTORES = {
 CAPAS = [
     {'id': 'agua_potable_rural', 'sector': 'agua', 'label': 'Agua Potable Rural', 'archivo': 'agua/agua_potable_rural.kml', 'kind': 'point'},
     {'id': 'bocatomas', 'sector': 'agua', 'label': 'Bocatomas', 'archivo': 'agua/bocatomas.kml', 'kind': 'point'},
+    {'id': 'canales', 'sector': 'agua', 'label': 'Canales de Riego', 'kind': 'line', 'tol': 60, 'campo_nombre': 'nomcan',
+     'ruta_abs': r'C:\Users\carlos.venegas\Documents\Sernageomin_Emergencia 2026'
+                 r'\canales_nacional_final\canales_nacional_final\canales_nacional_final.shp',
+     'pesada': True},
 
     {'id': 'almacenes_combustible', 'sector': 'energia', 'label': 'Almacenes de Combustible', 'archivo': 'energia/almacenes_combustible.kml', 'kind': 'point'},
     {'id': 'centrales_biomasa', 'sector': 'energia', 'label': 'Centrales de Biomasa', 'archivo': 'energia/centrales_biomasa.kml', 'kind': 'point'},
@@ -84,8 +90,9 @@ CAPAS = [
 ]
 
 # Columnas que agrega geopandas al leer KML y que no son datos reales del atributo
-# original (metadata de estilo/KML) — se descartan siempre.
-DROP_COLS = {'id', 'Name', 'description', 'timestamp', 'begin', 'end', 'altitudeMode',
+# original (metadata de estilo/KML), más 'gid'/'id' de shapefiles (correlativo interno
+# sin valor informativo, ej. canales) — se descartan siempre.
+DROP_COLS = {'id', 'gid', 'Name', 'description', 'timestamp', 'begin', 'end', 'altitudeMode',
              'tessellate', 'extrude', 'visibility', 'drawOrder', 'icon', 'geometry'}
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -132,11 +139,13 @@ def round_coords(obj, dec):
 
 
 def generar_capa(cap):
-    ruta = os.path.join(SRC, cap['archivo'])
+    # 'ruta_abs': algunas capas (ej. canales, shapefile aparte) no viven bajo fallas-activas-chile
+    # sino en su propia carpeta fuente — se les pasa la ruta completa en vez de 'archivo'.
+    ruta = cap.get('ruta_abs') or os.path.join(SRC, cap['archivo'])
     if not os.path.isfile(ruta):
         print(f"[{cap['id']}] AVISO: no existe {ruta} — omitida")
         return None
-    gdf = gpd.read_file(ruta)   # respeta encoding="utf-8" del prólogo del KML (NO forzar otro)
+    gdf = gpd.read_file(ruta)   # respeta el encoding utf-8 declarado (KML) o del .cpg (shapefile) — NO forzar otro
 
     if cap['kind'] == 'line':
         tol = cap.get('tol', 30)
@@ -153,7 +162,10 @@ def generar_capa(cap):
         geom = row.geometry
         if geom is None or geom.is_empty:
             continue
-        nombre = row.get('Name')
+        # 'campo_nombre': casi todas las capas vienen de KML con <name> (columna 'Name');
+        # los shapefiles (ej. canales) no tienen ese campo, así que la capa puede indicar
+        # cuál de sus columnas usar como título del popup (ej. 'nomcan').
+        nombre = row.get(cap.get('campo_nombre', 'Name'))
         nombre = fix_mojibake(str(nombre).strip()) if nombre and str(nombre).strip().lower() != 'none' else ''
         attrs = {c: row[c] for c in attr_cols if not valor_vacio(row[c])}
         # SimpleData llega como texto salvo que geopandas infiera número; castear numpy
