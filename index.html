@@ -987,6 +987,10 @@ body.map-mode #nav-buttons { display: none !important; }
     </span>
     <button class="map-btn" id="mapa-temporal" title="Emergencias activas por el temporal de jul-2026 (MOP): Atacama, Coquimbo y Valparaíso">🌊 Emergencia (MOP)</button>
     <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-emergencias" title="Visor de Emergencias 2026 (Oficina de Gestión de Emergencias SERNAGEOMIN): eventos geológicos y mineros reportados en el año, en vivo">🚨 Emergencias</button>
+      <small class="map-btn-src">SERNAGEOMIN</small>
+    </span>
+    <span class="map-btn-stack">
       <button class="map-btn" id="mapa-informes" title="Informes técnicos SERNAGEOMIN: Minutas Técnicas ATG Flash (eventos recientes) + Catálogo histórico de Remociones en Masa (RMASA) con PDF descargables">📄 Informes</button>
       <small class="map-btn-src">SERNAGEOMIN</small>
     </span>
@@ -1066,7 +1070,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v79';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v80';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4101,6 +4105,17 @@ async function jornadaDelete(id) {
 
 const escapeHtmlJS = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Sanitiza HTML de fuentes AJENAS (KMZ propio, capas externas) antes de inyectarlo como popup:
+// elimina vectores de ejecución de script (self-XSS) — tags <script>/<iframe>/<object>/<embed>/<link>/<meta>,
+// atributos de evento on*= y URIs javascript: en href/src.
+const sanitizarHtml = h => String(h || '')
+  .replace(/<\s*(script|iframe|object|embed|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+  .replace(/<\s*(script|iframe|object|embed|link|meta)\b[^>]*\/?>/gi, '')
+  .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+  .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+  .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+  .replace(/(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"');
+
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -4778,6 +4793,12 @@ let catRLayer = null, catRCanvas = null, catROn = false, catRData = null, catRCa
 const CATR_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/informes-rmasa/main/catalogo_rmasa.kmz';
 const EST_KML_URL = 'https://raw.githubusercontent.com/cvenegas-sernageomin/alertas-redes/live/red_alertas.kml';
 const EST_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h (el cron de alertas-redes actualiza ~2-5 h)
+// --- Capa "Emergencias 2026" (Visor de la Oficina de Gestión de Emergencias SERNAGEOMIN,
+// eventos GEO/MIN reportados en el año, KML en vivo publicado en Google My Maps) ---
+let emerLayer = null, emerCanvas = null, emerOn = false, emerData = null, emerTs = 0, emerCargando = false;
+const EMER_URL = 'https://www.google.com/maps/d/kml?mid=17pcWVK-N5ACXG2WMB4ztpw6hsuo9c74&forcekml=1';
+const EMER_MAXAGE = 3 * 60 * 60 * 1000;   // refresco cada 3 h, igual que Estaciones
+const EMER_COLOR = { geo: '#dc2626', min: '#b45309' };
 const EST_COLOR = { verde: '#22c55e', amarillo: '#ffcc00', rojo: '#ff2d2d', gris: '#8a8a8a' };
 const EST_RADIO = { verde: 4, amarillo: 6, rojo: 8, gris: 3 };
 // En pantalla táctil los puntos se agrandan y el área de toque se amplía (tolerance del canvas):
@@ -4823,6 +4844,8 @@ function initMapaFull() {
   pcLayer = L.layerGroup();
   tempCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para emergencias del temporal (MOP)
   tempLayer = L.layerGroup();
+  emerCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para Emergencias 2026 (SERNAGEOMIN)
+  emerLayer = L.layerGroup();
   mapaFull.createPane('peligros');                  // overlays de mapas de peligro: sobre las tiles, bajo los puntos RM
   mapaFull.getPane('peligros').style.zIndex = 350;  // tilePane=200 < 350 < overlayPane=400
   mapaFull.on('click', onMapaFullClick);
@@ -5013,6 +5036,94 @@ function toggleEstaciones() {
     if (estTimer) { clearInterval(estTimer); estTimer = null; }
     mapaFull.removeLayer(estLayer);
     estBtnEstado('🌧️ Estaciones', false);
+  }
+}
+
+// ---- Emergencias 2026 (Oficina de Gestión de Emergencias SERNAGEOMIN) ----
+// Fuente: Google My Maps público (CORS abierto, verificado: Access-Control-Allow-Origin: *).
+// El .kmz descargable del visor solo trae un <NetworkLink> a esta URL — se lee directo,
+// sin re-hostear nada (dato vivo, lo actualiza la Oficina de Emergencias sin pasar por nosotros).
+function emerBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-emergencias');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+// Solo las carpetas "Eventos GEO ..." / "Eventos MIN ..." traen eventos reales; la carpeta
+// "Datos Ultima Minuta Técnica" es un stub con 9 puntos fijos "Minuta en actualización" por
+// región (sin dato real) y se descarta explícitamente.
+function parseEmergenciasKml(texto) {
+  const doc = new DOMParser().parseFromString(texto, 'text/xml');
+  const out = [];
+  const folders = doc.getElementsByTagName('Folder');
+  for (let i = 0; i < folders.length; i++) {
+    const folder = folders[i];
+    const fname = (folder.getElementsByTagName('name')[0]?.textContent || '').trim();
+    const tipo = /^Eventos GEO/i.test(fname) ? 'geo' : /^Eventos MIN/i.test(fname) ? 'min' : null;
+    if (!tipo) continue;
+    Array.from(folder.children).filter(n => n.tagName === 'Placemark').forEach(pm => {
+      const coordEl = pm.getElementsByTagName('coordinates')[0];
+      if (!coordEl) return;
+      const partes = coordEl.textContent.trim().split(',');
+      const lon = parseFloat(partes[0]), lat = parseFloat(partes[1]);
+      if (!isFinite(lat) || !isFinite(lon)) return;
+      out.push({
+        lat, lon, tipo,
+        nombre: (pm.getElementsByTagName('name')[0]?.textContent || '').trim(),
+        desc: pm.getElementsByTagName('description')[0]?.textContent || ''
+      });
+    });
+  }
+  return out;
+}
+function renderEmergencias() {
+  if (!emerLayer) return;
+  emerLayer.clearLayers();
+  (emerData || []).forEach(e => {
+    const cm = L.circleMarker([e.lat, e.lon], {
+      renderer: emerCanvas, radius: 7 + EST_RADIO_EXTRA,
+      color: '#fff', weight: 1.5, fillColor: EMER_COLOR[e.tipo] || EMER_COLOR.geo, fillOpacity: 0.9
+    });
+    const popup = `<b>${escapeHtmlJS(e.nombre)}</b>${e.desc ? '<br/>' + sanitizarHtml(e.desc) : ''}`;
+    cm.bindPopup(popup, { maxWidth: Math.min(340, window.innerWidth - 50), ...POPUP_AUTOPAN });
+    emerLayer.addLayer(cm);
+  });
+}
+async function cargarEmergencias(forzar) {
+  if (emerCargando) return;
+  const fresco = emerData && (Date.now() - emerTs) < EMER_MAXAGE;
+  if (fresco && !forzar) { renderEmergencias(); return; }
+  emerCargando = true;
+  emerBtnEstado('⏳ Emergencias', true);
+  toastMapa('Descargando emergencias…', 0);
+  try {
+    const resp = await fetch(EMER_URL, { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    emerData = parseEmergenciasKml(await resp.text());
+    emerTs = Date.now();
+    renderEmergencias();
+    const nGeo = emerData.filter(e => e.tipo === 'geo').length;
+    const nMin = emerData.filter(e => e.tipo === 'min').length;
+    toastMapa('🚨 ' + emerData.length + ' emergencias · ' + nGeo + ' GEO · ' + nMin + ' MIN');
+  } catch (err) {
+    console.warn('Emergencias 2026:', err);
+    toastMapa('⚠️ No se pudieron cargar las emergencias (¿sin conexión?)');
+    emerOn = false;
+  } finally {
+    emerCargando = false;
+    emerBtnEstado('🚨 Emergencias', emerOn);
+  }
+}
+function toggleEmergencias() {
+  if (!mapaFull) return;
+  emerOn = !emerOn;
+  if (emerOn) {
+    emerLayer.addTo(mapaFull);
+    emerBtnEstado('🚨 Emergencias', true);
+    cargarEmergencias(false);
+  } else {
+    mapaFull.removeLayer(emerLayer);
+    emerBtnEstado('🚨 Emergencias', false);
   }
 }
 
@@ -5620,18 +5731,6 @@ async function cargarKmzArchivo(file) {
       return (url && estilos[url]) || null;
     };
     const texto = (el, sel) => el?.querySelector(sel)?.textContent?.trim() || '';
-
-    // Sanitiza la descripción de un KMZ/KML AJENO antes de inyectarla como popup.
-    // Aunque el archivo lo elige el propio usuario, se eliminan los vectores de
-    // ejecución de script (self-XSS): tags <script>/<iframe>/<object>/<embed>/<link>/<meta>,
-    // atributos de evento on*= y URIs javascript: en href/src.
-    const sanitizarHtml = h => String(h || '')
-      .replace(/<\s*(script|iframe|object|embed|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-      .replace(/<\s*(script|iframe|object|embed|link|meta)\b[^>]*\/?>/gi, '')
-      .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-      .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-      .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
-      .replace(/(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"');
 
     // Descripción → popup: sanitiza y reescribe <img src> internos a blob URLs
     const descHtml = d => {
@@ -6483,6 +6582,7 @@ document.getElementById('mapa-tiles').addEventListener('click', mapaFullTiles);
 document.getElementById('mapa-estaciones').addEventListener('click', toggleEstaciones);
 document.getElementById('mapa-criticos').addEventListener('click', toggleCriticos);
 document.getElementById('mapa-temporal').addEventListener('click', toggleTemporal);
+document.getElementById('mapa-emergencias').addEventListener('click', toggleEmergencias);
 document.getElementById('mapa-informes').addEventListener('click', toggleInformes);
 document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
