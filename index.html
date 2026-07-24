@@ -1066,7 +1066,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v78';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v79';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4809,9 +4809,13 @@ function initMapaFull() {
   mapaFullLines = L.layerGroup().addTo(mapaFull);
   estCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas: pinta ~1700 estaciones sin lag
   estLayer = L.layerGroup();                        // se agrega al mapa solo al activar el toggle
-  minCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer canvas para las minutas ATG
+  // Minutas y Catálogo RMASA comparten UN mismo renderer canvas (mapa-informes las muestra
+  // juntas). Con dos canvas apilados en el mismo pane, el de encima se traga el tap donde no
+  // tiene punto y el de abajo nunca recibe el click → no salía popup (mismo problema que
+  // teníamos en IPT). Un solo canvas hace hit-detection sobre los puntos de ambas capas.
+  minCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });   // renderer compartido: minutas ATG + catálogo RMASA
   minLayer = L.layerGroup();
-  catRCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA });  // renderer canvas para el catálogo RMASA (1.640 pts)
+  catRCanvas = minCanvas;
   catRLayer = L.layerGroup();
   pronoCanvas = L.canvas({ padding: 0.5, tolerance: TAP_TOLERANCIA }); // renderer canvas para la grilla de pronóstico
   pronoLayer = L.layerGroup();
