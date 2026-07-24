@@ -883,6 +883,12 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
+    <label>Fecha de inspección <button class="help-btn" data-help="fecha-inspeccion">?</button></label>
+    <input type="date" id="fecha-inspeccion">
+    <p style="font-size:0.72rem;color:var(--muted);margin:4px 0 0">Día en que se visitó el terreno. Es distinta de la fecha del evento y de la hora de ingreso (cuándo se llenó esta ficha).</p>
+  </div>
+
+  <div class="field">
     <label>Hora de ingreso</label>
     <input type="text" id="hora-ingreso" readonly style="color:var(--muted)">
   </div>
@@ -1025,7 +1031,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v71';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v72';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1054,6 +1060,10 @@ function goToStep(n) {
   document.getElementById('btn-next').style.display = n < TOTAL_STEPS ? 'block' : 'none';
   if (n === TOTAL_STEPS) {
     document.getElementById('hora-ingreso').value = new Date().toLocaleString('es-CL');
+    // Fecha de inspección: se propone hoy, pero queda editable (la ficha puede llenarse
+    // días después de la visita). Solo se autocompleta si el usuario aún no puso nada.
+    const fi = document.getElementById('fecha-inspeccion');
+    if (fi && !fi.value) fi.value = new Date().toLocaleDateString('en-CA');   // en-CA = AAAA-MM-DD, formato que exige <input type=date>
     const savedAutor = localStorage.getItem('rem-autor') || '';
     if (!document.getElementById('autor').value) {
       document.getElementById('autor').value = savedAutor;
@@ -1976,6 +1986,10 @@ const HELP_TEXTS = {
   autor: {
     title: 'Autor del registro',
     text: 'Tu nombre completo. Se guardará automáticamente para los próximos registros en este dispositivo.'
+  },
+  'fecha-inspeccion': {
+    title: 'Fecha de inspección',
+    text: 'Día en que efectivamente se visitó el terreno. Es un dato distinto de la fecha del evento (cuándo ocurrió la remoción) y de la hora de ingreso (cuándo se llenó esta ficha, que puede ser días después). El informe RETERM la usa para separar lo ocurrido de lo observado en terreno. Por defecto se propone hoy; cámbiala si estás ingresando una inspección de otro día.'
   }
 };
 
@@ -2091,6 +2105,40 @@ async function capturarFiguraA(lat, lon) {
 }
 
 // =====================
+// CÓDIGOS INTERNOS → TEXTO LEGIBLE
+// =====================
+// Los chips/toggles guardan un código corto en data-val ('foliacion', 'sin-estructuras',
+// 'electrica'...) porque es lo que se persiste en IndexedDB y en el respaldo JSON. Ese código
+// NO debe llegar nunca al informe ni al KMZ: sin traducción salían frases como "Se observan
+// fallas, sin-estructuras en el escarpe" (código crudo, sin tilde y sin sentido gramatical).
+// Esta tabla es la fuente única de la forma redactada de cada código.
+// REGLA: al agregar un chip nuevo con data-val, agregar aquí su texto si va a aparecer en
+// un documento. Si falta, etiq() cae al propio código (visible, pero nunca rompe el informe).
+const ETIQUETAS = {
+  // estructuras geológicas
+  fallas: 'fallas', diaclasas: 'diaclasas', foliacion: 'foliación',
+  estrato: 'estratificación', contacto: 'contacto litológico',
+  'sin-estructuras': 'sin estructuras geológicas visibles',
+  // componentes del depósito
+  antropico: 'material antrópico', vegetal: 'árboles y restos vegetales',
+  // granulometría
+  bloques: 'bloques', gravas: 'gravas', arenas: 'arenas', limos: 'limos', arcillas: 'arcillas',
+  // geometría de la ladera
+  concava: 'cóncava', convexa: 'convexa', plana: 'plana', irregular: 'irregular',
+  // infraestructura expuesta
+  viviendas: 'viviendas', carretera: 'carretera', puente: 'puente',
+  electrica: 'línea eléctrica', otro: 'otro',
+};
+function etiq(cod) { return ETIQUETAS[cod] || cod || ''; }
+function etiqLista(arr, sep = ', ') { return (arr || []).map(etiq).join(sep); }
+// 'sin-estructuras' no es una estructura: es la ausencia de ellas. Sirve para saber si tiene
+// sentido hablar de "control estructural" (ver conclusiones), donde antes se comparaba el
+// código contra la etiqueta y por eso el filtro nunca se activaba.
+function tieneEstructurasReales(arr) {
+  return (arr || []).some(c => c !== 'sin-estructuras');
+}
+
+// =====================
 // CONSTRUCCIÓN DEL KML
 // =====================
 function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
@@ -2154,15 +2202,16 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('N° Antecedente', data['n-antecedente'])}
   ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
   ${row('Coordenadas', coords ? `${coords.lat.toFixed(6)}, ${(coords.lng ?? coords.lon).toFixed(6)}` : null)}
-  ${row('Fecha', fechaStr)}
+  ${row('Fecha del evento', fechaStr)}
   ${row('Hora', horaStr)}
+  ${row('Fecha de inspección', (() => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data['fecha-inspeccion'] || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : data['fecha-inspeccion']; })())}
   ${row('Desencadenante', data.desencadenante)}
 </table>
 <h3 style="color:#555;margin-top:12px">📐 Morfometría</h3>
 <table style="border-collapse:collapse;width:100%">${morfoRows || '<tr><td style="color:#aaa;padding:4px 8px">No registrada</td></tr>'}</table>
 <h3 style="color:#555;margin-top:12px">🪨 Características del depósito</h3>
 <table style="border-collapse:collapse;width:100%">
-  ${row('Granulometría', data.granulometria?.join(', '))}
+  ${row('Granulometría', data.granulometria?.length ? etiqLista(data.granulometria) : null)}
   ${row('Plasticidad', data.plasticidad)}
   ${row('Tamaño máx. bloques', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
   ${row('Proporción bloques', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
@@ -2172,14 +2221,14 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 <h3 style="color:#555;margin-top:12px">⛰️ Zona de Generación / Talud / Escarpe</h3>
 <table style="border-collapse:collapse;width:100%">
   ${row('Tipo de ladera', data['tipo-ladera'])}
-  ${row('Geometría ladera', data['geometria-ladera']?.join(', '))}
+  ${row('Geometría ladera', data['geometria-ladera']?.length ? etiqLista(data['geometria-ladera']) : null)}
   ${row('Estado del escarpe', data['estado-escarpe'])}
   ${(data['grietas-traccion'] || []).map((g, i) => row(`Grieta de tracción ${i + 1}`, `Largo ${g.largo || '?'} m · Apertura ${g.apertura || '?'} cm · Salto ${g.salto || '?'} cm · Dist. escarpe ${g.distEscarpe || '?'} m`)).join('')}
   ${row('Litología dominante', data.litologia)}
   ${row('Suelo sobre roca', data['suelo-adicional'])}
   ${row('Alteración / meteorización', data['grado-alteracion'])}
   ${row('Orientación escarpe', data.orientacion ? data.orientacion + '°N' : null)}
-  ${row('Estructuras', data.estructuras?.join(', '))}
+  ${row('Estructuras', data.estructuras?.length ? etiqLista(data.estructuras) : null)}
   ${(data['estructuras-dip'] || []).map(e => row(`↗ ${e.tipo || 'Estructura'}`, `Rumbo ${e.strike || '?'}°N / Dip ${e.dip || '?'}° (RHR)`)).join('')}
   ${row('Vegetación', data.vegetacion)}
 </table>
@@ -2195,7 +2244,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 <table style="border-collapse:collapse;width:100%">
   ${data.amenaza ? `<tr><td style="color:#888;padding:4px 8px;white-space:nowrap"><b>Amenaza activa</b></td><td style="padding:4px 8px"><span style="${amenazaStyle}">${amenazaLabel}</span></td></tr>` : ''}
   ${row('Personas afectadas', data['personas-afectadas'] + (data['num-personas'] ? ` (${data['num-personas']})` : ''))}
-  ${row('Infraestructura', data.infraestructura?.join(', '))}
+  ${row('Infraestructura', data.infraestructura?.length ? etiqLista(data.infraestructura) : null)}
   ${row('Dist. a vivienda', data['dist-vivienda'] ? data['dist-vivienda'] + ' m' : null)}
 </table>
 ${data.efectos ? `<h3 style="color:#555;margin-top:12px">📝 Efectos</h3><p>${escapeHtml(data.efectos)}</p>` : ''}
@@ -3001,6 +3050,7 @@ function collectFormData() {
     autor: document.getElementById('autor')?.value,
     'prof-iniciales': document.getElementById('prof-iniciales')?.value,
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
+    'fecha-inspeccion': document.getElementById('fecha-inspeccion')?.value,
     region: ultimaComunaRegion ? ultimaComunaRegion.region : regionFromCoords(getCoords()),
     comuna: ultimaComunaRegion ? ultimaComunaRegion.comuna : '',
     provincia: ultimaComunaRegion ? ultimaComunaRegion.provincia : '',
@@ -3192,6 +3242,16 @@ async function generateRETERM(record, ret) {
       if (data['fecha-fin']) s += ' — ' + data['fecha-fin'];
       return s;
     })();
+    // Fecha de la visita a terreno — distinta de la fecha del evento. Se muestra en formato
+    // chileno (dd-mm-aaaa) a partir del valor AAAA-MM-DD del <input type=date>; se arma a
+    // mano y NO con new Date(), porque "2026-07-23" se parsea como UTC y en Chile (UTC-3/-4)
+    // retrocede un día al formatear en local.
+    const fechaInspStr = (() => {
+      const v = data['fecha-inspeccion'];
+      if (!v) return null;
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+      return m ? `${m[3]}-${m[2]}-${m[1]}` : v;
+    })();
     const estado = data.amenaza === 'si' ? 'Activo' : data.amenaza === 'no' ? 'Inactivo' : data.amenaza === 'incierta' ? 'En evaluación' : 'No evaluado';
     const region = data.region || 'XXXX';
     const regionCorta = region.replace(/\s*\(.*\)/, '').toUpperCase();
@@ -3242,13 +3302,17 @@ async function generateRETERM(record, ret) {
       obsPartes.push(litFrase + '.');
     }
     if (data.componentes?.length) {
-      const nombresComp = { antropico: 'material antrópico', vegetal: 'árboles y restos vegetales' };
-      const items = data.componentes.map(c => nombresComp[c] || c);
-      let frase = `El depósito incorpora ${esc(items.join(' y '))}.`;
+      let frase = `El depósito incorpora ${esc(etiqLista(data.componentes, ' y '))}.`;
       if (data.componentes.includes('vegetal')) frase += ' El material orgánico altera el volumen movilizado y puede actuar como dique, generando represamientos temporales.';
       obsPartes.push(frase);
     }
-    if (data.estructuras?.length) obsPartes.push(`Se observan ${esc(data.estructuras.join(', '))} en el escarpe.`);
+    // "sin estructuras visibles" es la AUSENCIA de estructuras: redactarlo como "se observan
+    // sin-estructuras en el escarpe" era incorrecto, así que ese caso lleva su propia frase.
+    if (data.estructuras?.length) {
+      obsPartes.push(tieneEstructurasReales(data.estructuras)
+        ? `Se observan ${esc(etiqLista(data.estructuras.filter(c => c !== 'sin-estructuras')))} en el escarpe.`
+        : 'No se observan estructuras geológicas visibles en el escarpe.');
+    }
     if ((data['estructuras-dip'] || []).length) {
       const dipStr = data['estructuras-dip'].map(e => `${e.tipo || 'estructura'} rumbo ${e.strike || '?'}°N/dip ${e.dip || '?'}° (RHR)`).join('; ');
       obsPartes.push(`Disposición de estructuras: ${esc(dipStr)}.`);
@@ -3265,7 +3329,7 @@ async function generateRETERM(record, ret) {
     // SOLO si el dato fue registrado (no inventa). Encadena: mecanismo/material → magnitud →
     // condicionantes y desencadenante → estado y condición observada con elementos expuestos → proyección.
     // NO clasifica un nivel de peligro (alto/moderado/bajo): eso lo califica el geólogo (ver punto 4).
-    const infra = data.infraestructura?.length ? data.infraestructura.join(', ') : null;
+    const infra = data.infraestructura?.length ? etiqLista(data.infraestructura) : null;
     const personas = data['personas-afectadas'];
     const nPers = data['num-personas'];
     const distViv = data['dist-vivienda'];
@@ -3280,12 +3344,12 @@ async function generateRETERM(record, ret) {
       const lugar = [localidad && localidad !== '___' ? esc(localidad) : null, data.comuna ? 'comuna de ' + esc(data.comuna) : null, data.region ? 'Región de ' + esc(region.replace(/\s*\(.*\)/, '')) : null].filter(Boolean).join(', ');
       let f = `El evento corresponde a una remoción en masa de tipo ${esc(tipo)}${lugar ? ', registrada en ' + lugar : ''}`;
       if (data['tipo-ladera']) f += `, desarrollada sobre una ladera ${esc(data['tipo-ladera'].toLowerCase())}`;
-      if (data['geometria-ladera']?.length) f += ` de geometría ${esc(data['geometria-ladera'].join('/').toLowerCase())}`;
+      if (data['geometria-ladera']?.length) f += ` de geometría ${esc(etiqLista(data['geometria-ladera'], '/'))}`;
       concluParts.push(f + '.');
       const mat = [];
       if (data.litologia) mat.push(esc(data.litologia.toLowerCase()));
       if (data['grado-alteracion']) mat.push(`con ${esc(data['grado-alteracion'])}`);
-      if (data.granulometria?.length) mat.push(`de granulometría dominante ${esc(data.granulometria.join(', ').toLowerCase())}`);
+      if (data.granulometria?.length) mat.push(`de granulometría dominante ${esc(etiqLista(data.granulometria))}`);
       if (data.humedad) mat.push(`en estado ${esc(data.humedad.toLowerCase())}`);
       if (mat.length) concluParts.push(`El material movilizado corresponde a ${mat.join(', ')}.`);
     }
@@ -3304,7 +3368,10 @@ async function generateRETERM(record, ret) {
     {
       const cond = [];
       if (data['grado-alteracion']) cond.push('el grado de alteración/meteorización del material');
-      if (data.estructuras?.length && !data.estructuras.includes('Sin estructuras visibles')) cond.push(`la presencia de estructuras (${esc(data.estructuras.join(', ').toLowerCase())})`);
+      // BUG corregido: se comparaba contra la ETIQUETA ('Sin estructuras visibles') pero el
+      // dato guardado es el CÓDIGO ('sin-estructuras'), así que el filtro nunca se activaba y
+      // el informe llegaba a decir "la presencia de estructuras (sin-estructuras)".
+      if (tieneEstructurasReales(data.estructuras)) cond.push(`la presencia de estructuras (${esc(etiqLista(data.estructuras.filter(c => c !== 'sin-estructuras')))})`);
       if (mp('pendiente-generacion')) cond.push('la pendiente de la ladera');
       if (data.humedad === 'Saturado' || data.humedad === 'Fluidizado') cond.push('la saturación del material');
       if (cond.length) concluParts.push(`Entre los factores condicionantes se reconocen ${cond.join(', ')}.`);
@@ -3329,20 +3396,22 @@ async function generateRETERM(record, ret) {
     // "peligro alto" por una descripción neutra de la condición observada.
     {
       const expuesto = (personas && personas !== 'Sin afectados') || infra || (distViv && parseFloat(distViv) <= 100);
-      let f = `Al momento de la inspección el proceso se encuentra ${estadoTxt}`;
+      // con fecha de inspección registrada se fecha explícitamente la observación
+      let f = fechaInspStr ? `A la fecha de inspección (${fechaInspStr}) el proceso se encuentra ${estadoTxt}`
+                           : `Al momento de la inspección el proceso se encuentra ${estadoTxt}`;
       if (data.amenaza === 'si') {
         f += expuesto ? ', en una condición de amenaza activa con elementos expuestos en el sector'
                       : ', en una condición de amenaza activa, sin elementos expuestos identificados en el sector';
       } else if (data.amenaza === 'incierta') {
         f += ', con una condición de amenaza aún por precisar';
       } else if (data.amenaza === 'no') {
-        f += ', sin evidencia de actividad ni de amenaza activa al momento de la inspección';
+        f += ', sin evidencia de actividad ni de amenaza activa a la fecha de inspección';
       }
       concluParts.push(f + '.');
 
       const exp = [];
       if (distViv) exp.push(`la vivienda más cercana se ubica a ${esc(distViv)} m del depósito`);
-      if (infra) exp.push(`la infraestructura expuesta incluye ${esc(infra.toLowerCase())}`);
+      if (infra) exp.push(`la infraestructura expuesta incluye ${esc(infra)}`);   // etiqLista ya entrega el texto redactado
       if (personas && personas !== 'Sin afectados') exp.push(`se reportan ${esc(personas.toLowerCase())}${nPers ? ` (${esc(nPers)} personas)` : ''}`);
       if (exp.length) concluParts.push(`En cuanto a elementos expuestos, ${exp.join('; ')}.`);
     }
@@ -3428,6 +3497,7 @@ async function generateRETERM(record, ret) {
       ['UBICACIÓN', ubicacionTxt],
       ['COORDENADAS (UTM WGS84)', coordStr],
       ['DÍA EVENTO', fechaStr],
+      ['FECHA DE INSPECCIÓN', fechaInspStr || 'No registrada'],
       ['DESENCADENANTE', data.desencadenante || 'No registrado'],
       ['ESTADO', estado],
       ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', areaVol],
@@ -3476,7 +3546,11 @@ async function generateRETERM(record, ret) {
       + '<w:tblGrid><w:gridCol w:w="' + LW + '"/><w:gridCol w:w="' + RW + '"/></w:tblGrid>'
       // Orden según los informes RETERM de referencia: antecedentes (con Figura A satelital)
       // → registro fotográfico de terreno → observaciones → conclusiones y recomendaciones.
-      + secRow('Descripción de remoción en masa tipo ' + tipo + ' observada el ' + fechaStr)
+      // "ocurrida el" (no "observada el"): la fecha que sigue es la del EVENTO, no la de la
+      // visita. Cuando se registró la fecha de inspección se explicita aparte para no
+      // confundir ambos hitos.
+      + secRow('Descripción de remoción en masa tipo ' + tipo + ' ocurrida el ' + fechaStr
+        + (fechaInspStr ? ' — inspección en terreno del ' + fechaInspStr : ''))
       + idRows
       + (lluviaRow ? secRow('Contexto de precipitación') + lluviaRow : '')
       + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
@@ -3844,7 +3918,9 @@ async function entregaDescargar() {
 function resetFormForNewRM() {
   document.querySelectorAll('.step input, .step select, .step textarea')
     .forEach(el => {
-      if (['hora-ingreso', 'autor', 'prof-iniciales', 'n-reterm'].includes(el.id)) return;
+      // fecha-inspeccion se conserva como autor/iniciales: en una jornada se describen
+      // varias RM el mismo día de visita, así no hay que reescribirla en cada ficha.
+      if (['hora-ingreso', 'autor', 'prof-iniciales', 'n-reterm', 'fecha-inspeccion'].includes(el.id)) return;
       if (el.type === 'checkbox') el.checked = false;
       else el.value = '';
     });
@@ -3901,7 +3977,7 @@ function populateForm(rec) {
   setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
   setEl('recom-libre', d['recomendaciones-libre']);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso']
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso','fecha-inspeccion']
     .forEach(id => setEl(id, d[id]));
   setEl('n-reterm', d['n-reterm'] || 'XX');
   { const lf = document.getElementById('lluvia-fuente'); if (lf && d['lluvia-fuente']) lf.textContent = d['lluvia-fuente']; }
