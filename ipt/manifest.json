@@ -138,6 +138,27 @@
    "n": 346,
    "generado": "2026-07-23",
    "auto": false
+  },
+  {
+   "id": "zona_morfoclimatica",
+   "nombre": "Zonificación morfoclimática (SERNAGEOMIN/DGA)",
+   "bbox": [
+    -109.4472,
+    -56.509,
+    -66.4183,
+    -17.4977
+   ],
+   "grupos": [
+    {
+     "g": "MORFO",
+     "archivo": "zona_morfoclimatica_MORFO.json",
+     "n": 119
+    }
+   ],
+   "n": 119,
+   "generado": "2026-07-24",
+   "auto": false,
+   "fuente": "SERNAGEOMIN/DGA (minutasATG_Flash)"
   }
  ]
 }

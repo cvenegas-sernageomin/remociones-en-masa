@@ -92,6 +92,25 @@ DIVISION_COMUNAL = {
     'decimales': 4, # ~11 m — consistente con la tolerancia; es capa de referencia, no de precision
 }
 
+# Capa nacional de referencia: zonificacion morfoclimatica (SERNAGEOMIN/DGA), 119 zonas.
+# Mismo patron que DIVISION_COMUNAL: pseudo-region con auto:false, grupo fijo 'MORFO'.
+# Fuente: capa "Minuta_tecnica" del servicio ArcGIS minutasATG_Flash (mismo servicio que
+# ya usa la capa "Minutas Tecnicas ATG Flash" de la PWA), exportada como shapefile.
+# Trae el campo POS_OCURRENCIA (posibilidad de ocurrencia de remocion en masa por zona),
+# cuyo dominio de codigos se confirmo consultando ese servicio (?f=json en la capa 2):
+#   MT-POSOC-01 Baja / -02 Moderada / -03 Alta / -04 Muy Alta.
+ZONA_MORFOCLIMATICA = {
+    'id': 'zona_morfoclimatica',
+    'nombre': 'Zonificación morfoclimática (SERNAGEOMIN/DGA)',
+    'shp': r'C:\Users\carlos.venegas\Documents\Sernageomin_Emergencia 2026'
+           r'\zonas_morfoclimaticas\zonas_morfoclimaticas.shp',
+    'tol': 1000,    # m; zonas de decenas/cientos de km, no hace falta la precision de DC (200 m)
+    'decimales': 4,
+}
+POS_OCURRENCIA = {
+    'MT-POSOC-01': 'Baja', 'MT-POSOC-02': 'Moderada', 'MT-POSOC-03': 'Alta', 'MT-POSOC-04': 'Muy Alta',
+}
+
 # tolerancia de simplificacion en metros, por grupo. Los IPT son referencia de
 # planificacion (no medicion de precision), asi que unos metros de error en los
 # bordes de zona son aceptables y bajan mucho el peso para uso movil en terreno.
@@ -276,6 +295,47 @@ def generar_division_comunal():
     return escribir_por_grupo(cfg['id'], cfg['nombre'], acum, extra={'auto': False})
 
 
+def generar_zona_morfoclimatica():
+    cfg = ZONA_MORFOCLIMATICA
+    if not os.path.isfile(cfg['shp']):
+        print(f"[{cfg['id']}] AVISO: no existe {cfg['shp']} — omitida")
+        return None
+    # OJO: el .cpg de este shapefile SÍ dice la verdad (UTF-8) — a diferencia del gotcha
+    # de "consola cp1252" visto en otras capas, acá forzar encoding='cp1252' rompe los
+    # acentos (verificado con hex: 'á' venía correcto como 0xe1 en utf-8, y como 2 bytes
+    # 0xc3 0xa1 mal interpretados con cp1252). Se deja que geopandas use el .cpg tal cual.
+    gdf = gpd.read_file(cfg['shp'])
+    gdf = gdf.to_crs(epsg=32719) if (gdf.crs and gdf.crs.to_epsg() != 32719) else gdf
+    gdf['geometry'] = gdf.geometry.simplify(cfg['tol'], preserve_topology=True)
+    gdf = gdf.to_crs(epsg=4326)
+
+    dec = cfg.get('decimales', DECIMALES)
+    features = []
+    bbox = [180.0, 90.0, -180.0, -90.0]
+    for _, row in gdf.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        b = geom.bounds
+        bbox[0] = min(bbox[0], b[0]); bbox[1] = min(bbox[1], b[1])
+        bbox[2] = max(bbox[2], b[2]); bbox[3] = max(bbox[3], b[3])
+        zona = val(row, 'ZONA')
+        region = val(row, 'REGION')
+        nivel = POS_OCURRENCIA.get(val(row, 'POS_OCURRE'), '')
+        features.append({
+            'type': 'Feature',
+            'properties': {k: v for k, v in (
+                ('g', 'MORFO'), ('zona', zona), ('region', region), ('nivel', nivel),
+            ) if v},
+            'geometry': round_coords(mapping(geom), dec),
+        })
+
+    acum = {'features': features, 'zonas': {}, 'zkeys': {}, 'bbox': bbox}
+    # nunca autoseleccionar (cubre todo Chile); igual que DC, sin checkbox de categoria propio
+    return escribir_por_grupo(cfg['id'], cfg['nombre'], acum,
+                               extra={'auto': False, 'fuente': 'SERNAGEOMIN/DGA (minutasATG_Flash)'})
+
+
 # ---- Regiones desde el REST de MINVU -------------------------------------------
 _ACENTOS = str.maketrans('áéíóúÁÉÍÓÚ', 'aeiouAEIOU')
 
@@ -347,7 +407,7 @@ def generar_region_minvu(rid, cfg):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     pedidas = [a.lower() for a in sys.argv[1:]] or (
-        list(REGIONES) + list(REGIONES_MINVU) + [DIVISION_COMUNAL['id']])
+        list(REGIONES) + list(REGIONES_MINVU) + [DIVISION_COMUNAL['id'], ZONA_MORFOCLIMATICA['id']])
     manifest_path = os.path.join(OUT_DIR, 'manifest.json')
     # partir del manifest existente para no perder regiones no regeneradas en esta corrida
     previas = {}
@@ -361,12 +421,14 @@ def main():
     for rid in pedidas:
         if rid == DIVISION_COMUNAL['id']:
             entrada = generar_division_comunal()
+        elif rid == ZONA_MORFOCLIMATICA['id']:
+            entrada = generar_zona_morfoclimatica()
         elif rid in REGIONES_MINVU:
             entrada = generar_region_minvu(rid, REGIONES_MINVU[rid])
         elif rid in REGIONES:
             entrada = generar_region(rid, REGIONES[rid])
         else:
-            conf = ', '.join(list(REGIONES) + list(REGIONES_MINVU) + [DIVISION_COMUNAL['id']])
+            conf = ', '.join(list(REGIONES) + list(REGIONES_MINVU) + [DIVISION_COMUNAL['id'], ZONA_MORFOCLIMATICA['id']])
             print(f'Region desconocida: {rid} (configuradas: {conf})')
             continue
         if entrada:

@@ -1070,7 +1070,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v80';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v81';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1840,9 +1840,15 @@ function updateCoordsDisplay() {
 // recalcula cada vez que el marcador se mueve (GPS o arrastre) y collectFormData() lee
 // este valor cacheado en vez de recalcular — mismo patrón que lluvia-fuente/lluvia-estacion.
 let ultimaComunaRegion = null;
+// Zona morfoclimática del punto actual (ver zonaMorfoDesdeCoords más arriba); null si el
+// punto cae fuera de las 119 zonas o el dataset aún no se cargó. collectFormData() lee este
+// valor cacheado (mismo patrón que ultimaComunaRegion).
+let ultimaZonaMorfo = null;
 function actualizarRegionComunaDisplay() {
   const el = document.getElementById('region-comuna-display');
   const c = getCoords();
+  ultimaZonaMorfo = zonaMorfoDesdeCoords(c);
+  if (!morfoPoligonos) cargarMorfoPoligonos().then(() => { ultimaZonaMorfo = zonaMorfoDesdeCoords(getCoords()); });
   const r = comunaRegionDesdeCoords(c);
   if (r) {
     ultimaComunaRegion = r;
@@ -2526,6 +2532,7 @@ ${prelimHTML}
   ${row('Localidad', data.localidad)}
   ${row('N° Antecedente', data['n-antecedente'])}
   ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
+  ${row('Zona morfoclimática', data['morfo-zona'] ? data['morfo-zona'] + (data['morfo-nivel'] ? ` (posibilidad ${data['morfo-nivel']})` : '') : null)}
   ${row('Coordenadas', coords ? `${coords.lat.toFixed(6)}, ${(coords.lng ?? coords.lon).toFixed(6)}` : null)}
   ${row('Fecha del evento', fechaStr)}
   ${row('Hora', horaStr)}
@@ -2915,6 +2922,47 @@ function comunaRegionDesdeCoords(c) {
   if (!f) return null;
   return { comuna: f.properties.com || '', provincia: f.properties.loc || '', region: regionCortaDesdeNombreOficial(f.properties.reg) };
 }
+
+// --- Zonificación morfoclimática (SERNAGEOMIN/DGA) — posibilidad de ocurrencia de RM ---
+// Mismo patrón que división comunal de arriba: dataset nacional (119 zonas), ray casting
+// con prefiltro bbox, se baja on-demand la 1ª vez que se marca un punto. Fuente: capa
+// "Minuta_técnica" del servicio ArcGIS minutasATG_Flash (tools/generar_ipt.py, pseudo-región
+// 'zona_morfoclimatica', grupo 'MORFO'). Trae el nivel MT-POSOC-01..04 → Baja/Moderada/Alta/
+// Muy Alta ya traducido en el JSON (ver POS_OCURRENCIA en el script).
+let morfoPoligonos = null, morfoCargando = false;
+async function cargarMorfoPoligonos() {
+  if (morfoPoligonos || morfoCargando) return;
+  morfoCargando = true;
+  try {
+    const resp = await fetch('ipt/zona_morfoclimatica_MORFO.json', { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    data.features.forEach(f => { f._bbox = iptBBox(f.geometry); });
+    morfoPoligonos = data.features;
+  } catch (err) {
+    console.warn('zona morfoclimática:', err);
+  } finally {
+    morfoCargando = false;
+  }
+}
+// La capa trae, superpuesto, tanto el contorno de la región completa (zona = "Región de …",
+// sin nivel) como sus zonas internas (Cordillera/Precordillera/Litoral…, con nivel cuando
+// SERNAGEOMIN/DGA la calificó). Un punto cae dentro de AMBOS a la vez; se prioriza la zona
+// interna con nivel calificado sobre el contorno regional genérico.
+function zonaMorfoDesdeCoords(c) {
+  if (!c || !morfoPoligonos) return null;
+  const lat = c.lat, lon = c.lng ?? c.lon;
+  if (lat == null || lon == null) return null;
+  const latlng = { lat, lng: lon };
+  const hits = morfoPoligonos.filter(ft => {
+    const b = ft._bbox;
+    return b && lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3] && iptEnPoligono(latlng, ft.geometry);
+  });
+  if (!hits.length) return null;
+  const f = hits.find(ft => ft.properties.nivel) || hits[0];
+  return { zona: f.properties.zona || '', region: f.properties.region || '', nivel: f.properties.nivel || '' };
+}
+
 // Región de Chile aproximada a partir de las coordenadas — SOLO respaldo si aún no hay
 // el dataset oficial cargado (ver comunaRegionDesdeCoords más arriba, que es lo que se usa
 // normalmente). Franja central: interior = Metropolitana, costa = Valparaíso/O'Higgins.
@@ -3383,6 +3431,9 @@ function collectFormData() {
     region: ultimaComunaRegion ? ultimaComunaRegion.region : regionFromCoords(getCoords()),
     comuna: ultimaComunaRegion ? ultimaComunaRegion.comuna : '',
     provincia: ultimaComunaRegion ? ultimaComunaRegion.provincia : '',
+    'morfo-zona': ultimaZonaMorfo ? ultimaZonaMorfo.zona : '',
+    'morfo-region': ultimaZonaMorfo ? ultimaZonaMorfo.region : '',
+    'morfo-nivel': ultimaZonaMorfo ? ultimaZonaMorfo.nivel : '',
     localidad: document.getElementById('localidad')?.value,
     'n-antecedente': document.getElementById('n-antecedente')?.value,
     'n-reterm': document.getElementById('n-reterm')?.value,
@@ -3706,6 +3757,13 @@ async function generateRETERM(record, ret) {
       if (data.granulometria?.length) mat.push(`de granulometría dominante ${esc(etiqLista(data.granulometria))}`);
       if (data.humedad) mat.push(`en estado ${esc(data.humedad.toLowerCase())}`);
       if (mat.length) concluParts.push(`El material movilizado corresponde a ${mat.join(', ')}.`);
+      // Zonificación morfoclimática SERNAGEOMIN/DGA: contexto regional oficial de
+      // posibilidad de ocurrencia de RM para la zona donde cae el punto (ver
+      // zonaMorfoDesdeCoords). Solo entra si hay nivel calificado — muchas zonas del
+      // dataset (sur del país) aún no tienen minuta técnica con esa calificación.
+      if (data['morfo-nivel']) {
+        concluParts.push(`Según la zonificación morfoclimática de SERNAGEOMIN/DGA, el punto se emplaza en la zona "${esc(data['morfo-zona'])}"${data['morfo-region'] ? ' (' + esc(data['morfo-region']) + ')' : ''}, calificada con una posibilidad de ocurrencia de remociones en masa <b>${esc(data['morfo-nivel'])}</b>.`);
+      }
     }
 
     // 2) Magnitud (morfometría)
@@ -5334,9 +5392,9 @@ let iptManifest = null, iptManifestCargando = false, iptAutoHecho = false;
 const iptRegiones = {};
 // Categorías visibles por defecto. AR (áreas de riesgo) arranca APAGADA porque es la capa
 // más pesada (geometrías densas de inundación/remoción) — el usuario la prende cuando la necesita.
-const iptVisible = { LU: true, PRC: true, PRI: true, PRDU: true, AR: false, ZNE: true, DC: true };
+const iptVisible = { LU: true, PRC: true, PRI: true, PRDU: true, AR: false, ZNE: true, DC: true, MORFO: true };
 // Orden de dibujo (fondo→tope) → z-index de pane. PRI/PRDU/PRC de fondo; AR y contornos arriba.
-const IPT_ORDEN = ['PRI', 'PRDU', 'PRC', 'AR', 'DC', 'ZNE', 'LU'];
+const IPT_ORDEN = ['MORFO', 'PRI', 'PRDU', 'PRC', 'AR', 'DC', 'ZNE', 'LU'];
 const iptCanvasG = {};                   // canvas por grupo (cada uno en su pane)
 const IPT_BASE = 'ipt/';
 function iptBtnEstado(txt, activo) {
@@ -5371,6 +5429,10 @@ function iptColor(zk) {
 function iptEstilo(feat) {
   const p = feat.properties || {};
   if (p.g === 'DC') return { color: '#f59e0b', weight: 1.4, dashArray: '5 4', fill: false };   // límite comunal: ámbar segmentado
+  if (p.g === 'MORFO') {   // zonificación morfoclimática: color por posibilidad de ocurrencia de RM
+    const c = { Baja: '#22c55e', Moderada: '#eab308', Alta: '#f97316', 'Muy Alta': '#dc2626' }[p.nivel] || '#9ca3af';
+    return { color: c, weight: 1, fillColor: c, fillOpacity: p.nivel ? 0.18 : 0.05 };
+  }
   if (p.g === 'LU') return { color: '#dc2626', weight: 3, dashArray: '6 4', fill: false };
   if (p.g === 'ZNE') return { color: '#7e22ce', weight: 2.5, dashArray: '4 3' };
   if (p.g === 'AR') return { color: '#b91c1c', weight: 1, fillColor: '#ef4444', fillOpacity: 0.3 };   // área de riesgo: rojo uniforme
@@ -5379,7 +5441,7 @@ function iptEstilo(feat) {
   if (p.g === 'PRI') return { color: c, weight: 1, fillColor: c, fillOpacity: 0.15 };
   return { color: c, weight: 1.5, fillColor: c, fillOpacity: 0.25 };   // PRC
 }
-const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', PRDU: 'Plan Regional de Desarrollo Urbano', AR: 'Área de riesgo', ZNE: 'Zona no edificable', DC: 'División comunal' };
+const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', PRDU: 'Plan Regional de Desarrollo Urbano', AR: 'Área de riesgo', ZNE: 'Zona no edificable', DC: 'División comunal', MORFO: 'Zonificación morfoclimática' };
 function iptNombreRegion(rid) {
   const r = iptManifest && iptManifest.regiones.find(x => x.id === rid);
   return r ? r.nombre : (rid || '');
@@ -5394,6 +5456,16 @@ function iptPopup(p) {
     html += '<small style="color:#8a94a3">División comunal (SUBDERE)</small><br/>';
     const partes = [p.loc ? 'Provincia de ' + p.loc : '', p.reg || ''].filter(Boolean);
     if (partes.length) html += esc2(partes.join(' · '));
+    return html;
+  }
+  if (p.g === 'MORFO') {   // zonificación morfoclimática: zona/región + posibilidad de ocurrencia de RM
+    const NIVEL_COLOR = { Baja: '#16a34a', Moderada: '#ca8a04', Alta: '#ea580c', 'Muy Alta': '#dc2626' };
+    let html = '<b>🌋 ' + esc2(p.zona || 'Zona morfoclimática') + '</b><br/>';
+    html += '<small style="color:#8a94a3">Zonificación morfoclimática · SERNAGEOMIN/DGA</small><br/>';
+    if (p.region) html += esc2(p.region) + '<br/>';
+    html += p.nivel
+      ? 'Posibilidad de ocurrencia de RM: <b style="color:' + (NIVEL_COLOR[p.nivel] || '#374151') + '">' + esc2(p.nivel) + '</b>'
+      : '<span style="color:#8a94a3">Sin calificación de posibilidad de ocurrencia en esta zona</span>';
     return html;
   }
   const z = iptZonaDe(p);
@@ -5485,7 +5557,7 @@ function onIptClick(e) {
   // las ZNE son líneas (el ray casting no las encuentra): si se tocó una directamente, va primero
   if (clicked && !feats.includes(clicked)) feats.unshift(clicked);
   if (!feats.length) return;
-  const orden = { AR: 0, PRC: 1, ZNE: 2, PRI: 3, PRDU: 4, LU: 5, DC: 6 };   // riesgo primero, comuna al final
+  const orden = { AR: 0, PRC: 1, ZNE: 2, PRI: 3, PRDU: 4, LU: 5, DC: 6, MORFO: 7 };   // riesgo primero, comuna y morfoclimática al final (lo menos específico)
   feats.sort((a, b) => (orden[a.properties.g] ?? 3) - (orden[b.properties.g] ?? 3));
   const MAX = 8;
   let html = feats.slice(0, MAX).map(f => iptPopup(f.properties || {})).join('<hr style="margin:7px 0;border:none;border-top:1px solid #d1d5db"/>');
