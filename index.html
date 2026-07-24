@@ -1046,7 +1046,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v75';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v76';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2061,7 +2061,7 @@ const HELP_TEXTS = {
   },
   referencias: {
     title: 'Referencias bibliográficas',
-    text: 'Listado institucional de publicaciones SERNAGEOMIN de las regiones de Atacama, Coquimbo y Valparaíso. Marca las que usaste como antecedente; se agregan al final del informe en una sección "Referencias", agrupadas por serie y con sangrado bibliográfico. Por defecto se muestran solo las de la región del evento (según las coordenadas) más las de alcance nacional o andino, que aplican siempre; con "Ver todas" se lista el catálogo completo. El buscador filtra por autor, carta o año.'
+    text: 'Listado institucional de publicaciones SERNAGEOMIN de las regiones de Atacama, Coquimbo y Valparaíso. Marca las que usaste como antecedente; se agregan al final del informe en una sección "Referencias". El orden es temático: primero remociones en masa y peligros geológicos, luego ordenamiento territorial y al final los mapas y cartas geológicas, alfabético por autor dentro de cada tema. Lo que marcas queda fijo arriba, en "Marcadas", aunque después filtres o busques otra cosa. Por defecto se muestran solo las de la región del evento (según las coordenadas) más las de alcance nacional o andino, que aplican siempre; con "Ver todas" se lista el catálogo completo. El buscador filtra por autor, carta o año.'
   }
 };
 
@@ -2183,66 +2183,70 @@ async function capturarFiguraA(lat, lon) {
 // Coquimbo y Valparaíso (planilla "Listado de publicaciones emergencia 2026").
 // Van EMBEBIDAS (~14 KB) y no en un archivo aparte a propósito: el informe se emite en
 // terreno, muchas veces sin señal, y no puede depender de un fetch ni del caché.
-//   s = serie (ver REF_SERIES) · r = referencia completa
+//   t = tema (ver REF_TEMAS) · s = serie (ver REF_SERIES) · r = referencia completa
 //   g = regiones que cubre; [] = general (Chile/Andes), aplica a cualquier región.
 // Las regiones se dedujeron del propio texto de la referencia; las 5 sin región son las
 // generales (Hauser 1993 y las Publicaciones Geológicas Multinacionales andinas).
+// El array YA VIENE ORDENADO como se muestra y se emite: por tema (REF_TEMAS_ORDEN) y
+// alfabético por autor dentro de cada tema, ignorando tildes. Lo genera tools/generar_referencias.py.
 const REF_SERIES = { B: 'Geología Básica', BO: 'Boletín', PGM: 'Publicación Geológica Multinacional', MG: 'Mapas Geológicos', IR: 'Informe Registrado' };
-// Orden de las series en la sección Referencias del informe.
-const REF_SERIES_ORDEN = ['B', 'MG', 'BO', 'IR', 'PGM'];
+// Temas: primero lo específico del peligro que se está describiendo, al final la cartografía
+// general (que es contexto, no el antecedente principal de una remoción).
+const REF_TEMAS = { RM: 'Remociones en masa y peligros geológicos', OT: 'Ordenamiento territorial', MAP: 'Mapas y cartas geológicas' };
+const REF_TEMAS_ORDEN = ['RM', 'OT', 'MAP'];
 const REFERENCIAS = [
-  {s:'B',g:['atacama'],r:'Mercado, M. 1978. Geología de la Cordillera de la Costa entre Chañaral y Caldera, región de Atacama. Instituto de Investigaciones Geológicas, Carta Geológica de Chile 27: 15 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Mercado, M. 1980. Geología del área Pan de Azúcar, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile 37: 30 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Abad, E. 1980. Geología de los Cuadrángulos Estación Algarrobal, Yerbas Buenas, Cerro Blanco, Merceditas y Tres Morros, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile 38: 48 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Arévalo, C. 2005. Carta Copiapó, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 91: 54 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Arévalo, C. 2005. Carta Los Loros, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 92: 54 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['coquimbo'],r:'Emparan, C.; Pineda, G. 2006. Geología del área Andacollo-Puerto Aldea, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 96: 85 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['coquimbo'],r:'Pineda, G.; Emparán, C. 2006. Geología del área Vicuña-Pichasca, Región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 97: 40 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Welkner, D.; Arévalo, C.; Godoy, E. 2006. Geología del área Freirina-El Morado, región de Atacama. Servicio de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 100: 50 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Welkner, D.; Arévalo, C.; Godoy, E. 2008. Geología del Área Carrizal Bajo-Chacritas, Región de Atacama. Servicio Nacional de Geología y Minería, Serie Geología Básica: 67 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['coquimbo'],r:'Pineda, G. 2008. Geología del área Monte Patria-El Maqui, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 116: 44 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Arévalo, C.; Mourgues, F.; Chávez, R. 2009. Geología del área Vallenar-Domeyko, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 120: 64 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama','coquimbo'],r:'Creixell, C.; Ortiz, M.; Arévalo, C. 2012. Geología del área Carrizalillo-El Tofo, región de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 133-134: 82 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Clavero, J.; Mpodozis, C.; Gardeweg, M.; Valenzuela, M. 2012. Geología de las áreas Laguna Wheelwright y Paso San Francisco, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 139-140: 32 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Mpodozis, C.; Iriarte, S.; Gardeweg, M.; Valenzuela, M. 2012. Carta Laguna del Negro Francisco, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 145: 30 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Salazar, E.; Coloma, F.; Creixell, C. 2013. Geología del área El Tránsito-Lagunillas, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 149: 106 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama','coquimbo'],r:'Creixell, C.; Labbé, M.; Arévalo, C.; Salazar, E. 2013. Geología del área Estación Chañar-Junta de Chingoles, regiones de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 150: 85 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Naranjo, J.A.; Villa, V.; Venegas, C. 2013. Geología de las áreas Salar de Aguilar y Portezuelo del León Muerto, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 151-152: 45 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Naranjo, J.A.; Villa, V.; Venegas, C. 2013. Geología de las áreas Salar de Pajonales y Cerro Moño, regiones de Antofagasta y Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 153-154: 46 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama','coquimbo'],r:'Ortiz, M.; Merino, R. 2015. Geología de las áreas Río Chollay-Matancilla y Cajón del Encierro, regiones de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 175-176: 234 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Martínez, F.; Peña, M.; Arriagada, C. 2015. Geología del área Iglesia Colorada-Cerro del Potro y Cerro Mondaquita, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 179-180: 65 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama'],r:'Salazar, E.; Coloma, F. 2016. Geología del área Cerros Cantaritos-Laguna Chica, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 181: 171 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['atacama','coquimbo'],r:'Murillo, I.; Velásquez, R.; Creixell, C. 2017. Geología de las áreas Guanta-Los Cuartitos y paso de Vacas Heladas, regiones de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 192-193: 96 p., 1 mapa escala 1:100.000, 1 CD con anexos. Santiago.'},
-  {s:'B',g:['coquimbo'],r:'Coloma, F.; Álvarez, J.; Creixell, C.; Emparán, C.; Salazar, E.; Calderón, M. 2020. Geología de las áreas Ovalle y Peña Blanca, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 208-209: 115 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['coquimbo'],r:'Velásquez, R.; Coloma, F.; Murillo, I.; Merino, R.N.; Ortiz, M. 2021. Geología de las áreas Pisco Elqui y Paso del Agua Negra, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 211-212: 201 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'B',g:['valparaiso'],r:'Lara, L.; Reyes, J.; Sepúlveda, P.; Orozco, G.; Piña, M.; Becerril, L. 2022. Geología de las islas Robinson Crusoe y Santa Clara, región de Valparaíso. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 213: 42 p., 1 mapa escala 1:25.000. Santiago.'},
-  {s:'B',g:['coquimbo'],r:'Merino, R.N.; Ortiz, M.; Coloma, F. 2025. Geología del área Cordillera de Doña Rosa-Paso de Los Azules, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 221: 72 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'BO',g:[],r:'Hauser, A. 1993. Remociones en masa en Chile. Servicio Nacional de Geología y Minería, Boletín 45: 75 p. Santiago.'},
-  {s:'BO',g:[],r:'Hauser, A. 1993. Remociones en masa en Chile (versión actualizada). Servicio Nacional de Geología y Minería, Boletín 59: 89 p. Santiago.'},
-  {s:'PGM',g:[],r:'Publicación Geológica Multinacional. 2007. Movimientos en Masa en la Región Andina. Una guía para la evaluación de amenazas. Proyecto Multinacional Andino: Geociencias para las Comunidades Andinas. Servicio Nacional de Geología y Minería, Publicación Geológica Multinacional 4: 404 p., 1 CD-Rom. Santiago.'},
-  {s:'PGM',g:[],r:'Publicación Geológica Multinacional. 2007. Conozcamos los peligros geológicos de la región andina. Proyecto Multinacional Andino: Geociencias para las Comunidades Andinas. Servicio Nacional de Geología y Minería, Publicación Geológica Multinacional 5: 78 p., 1 mapa escala 1:7.500.000. Santiago.'},
-  {s:'PGM',g:[],r:'Publicación Geológica Multinacional. 2008. Experiencias andinas en mitigación de riesgos geológicos. Proyecto Multinacional Andino: Geociencias para las Comunidades Andinas. Servicio Nacional de Geología y Minería, Publicación Geológica Multinacional 6: 106 p. Santiago.'},
-  {s:'MG',g:['valparaiso'],r:'Gana, P.; Wall, R. 1996. Mapa geológico del área de Valparaíso-Curacaví, regiones de Valparaíso y Metropolitana. Servicio Nacional de Geología y Minería, Mapas Geológicos 1: 20 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['valparaiso'],r:'Wall, R.; Gana, P. 1996. Mapa geológico del area de San Antonio-Melipilla: regiones de Valparaíso, Metropolitana y del Libertador General Bernardo O’Higgins. Servicio Ncional de Geología y Minería, Mapas Geológicos 2: 20 p., 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Iriarte, S.; Arévalo, C.; Mpodozis, C.; Rivero, O. 1996. Mapa Geológico de la Hoja Carrera Pinto, Región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 3, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Lara, L.; Godoy, E. 1998. Hoja Quebrada Salitrosa, Región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 4, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Godoy, E.; Lara, L. 1998. Hojas Chañaral y Diego de Almagro, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 5-6, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Cornejo, P.; Mpodozis, C.; Tomlinson, A. 1998. Hoja Salar de Maricunga, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 7, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Iriarte, S.; Arévalo, C.; Mpodozis, C. 1999. Hoja La Guardia, Región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 13, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Tomlinson, A.J.; Cornejo, P.; Mpodozis, C. 1999. Hoja Potrerillos, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 14, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['atacama'],r:'Godoy, E.; Lara, L. 1999. Hoja Puerto Flamenco, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 15, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'MG',g:['coquimbo'],r:'Emparán, C.; Pineda, G. 2000. Área La Serena-La Higuera, Región de Coquimbo. Servicio Nacional de Geología y Minería, Mapas Geológicos 18, 1 mapa escala 1:100.000. Santiago.'},
-  {s:'IR',g:['valparaiso'],r:'Sernageomin. 2004. Geología para el ordenamiento territorial de la Región de Valparaíso. Servicio Nacional de Geología y Minería, Informe Registrado IR-04-23 (inédito): 49 p., 2 mapas escala 1:250.000. Santiago'},
-  {s:'IR',g:['valparaiso'],r:'Lépez, L.; Wall, R.; Prat, M. 2005. Peligro de remociones en masa e inundaciones de las ciudades de Valparaíso, Viña del Mar y Concón, Región de Valparaíso. Servicio Nacional de Geología y Minería, Informe Registrado IR-05-29 (inédito). Santiago.'},
-  {s:'IR',g:['coquimbo'],r:'Arévalo, C.; Creixell, C.; Mourgues, F.A. 2010. Geología del área Cruz Grande-Junta de Chingoles, región de Coquimbo. Servicio Nacional de Geología y Minería, Informe Registrado IR-10-40 (inédito): 133 p., 6 mapas escala 1:50.000. Santiago.'},
-  {s:'IR',g:['coquimbo'],r:'Opazo, E.; Escudero, I., Neira, H. 2017. Remociones en masa tipo flujo de marzo de 2015 y sus efectos sobre los centros poblados en la cuenca del río Elqui, región de Coquimbo. Servicio Nacional de Geología y Minería, Informe Registrado IR-17-66 (inédito): 48 p., 1 mapa a diferentes escalas. Santiago.'},
-  {s:'IR',g:['coquimbo'],r:'Alfaro, A.; Pantoja, G.; Brantt, C. 2018. Peligro de remociones en masa en la región de Coquimbo-Sector Norte. Servicio Nacional de Geología y Minería, Informe Registrado IR-18-68 (inédito): 40 p., 1 mapa escala 1:250.000, 3 anexos. Santiago.'},
-  {s:'IR',g:['atacama'],r:'Lacassie, J.P.; Carrasco, F.; Baeza, L. 2019. Impacto de las remociones en masa de marzo de 2015 en el sistema fluvial del río Copiapó, región de Atacama: análisis comparativo de la geoquímica de sedimentos. Servicio Nacional de Geología y Minería, Informe Registrado IR-19-77 (inédito): 84 p. Santiago.'},
-  {s:'IR',g:['atacama'],r:'Baeza, L.; Lacassie, J.P.; Carrasco, F. 2020. Impacto de las remociones en masa de marzo de 2015 en el sistema fluvial del río Salado, región de Atacama: análisis comparativo de la geoquímica de sedimentos. Servicio Nacional de Geología y Minería, Informe Registrado IR-20-82 (inédito): 108 p. Santiago.'},
-  {s:'IR',g:['atacama'],r:'Fernández, J.; Espinoza, L. 2020. Compilación y análisis del registro histórico de remociones en masa tipo flujo en la cuenca del río Copiapó, región de Atacama. Servicio Nacional de Geología y Minería, Informe Registrado IR-20-83 (inédito): 81 p. Santiago.'},
-  {s:'IR',g:['coquimbo'],r:'Brantt, C.; Pantoja, G.; Muñoz, A. 2021. Peligro de remociones en masa en el sector sur de la región de Coquimbo. Servicio Nacional de Geología y Minería, Informe Registrado IR-21-88 (inédito): 107 p., 1 mapa escala 1:250.000. Santiago.'},
-  {s:'IR',g:['atacama'],r:'Fernández, J.; Espinoza, L. 2022. Susceptibilidad de remociones en masa en la cuenca del río Copiapó, región de Atacama. Servicio Nacional de Geología y Minería, Informe Registrado IR-22-99 (Inédito): 20 p., 1 mapa en 4 hojas, escala 1:100.000. Santiago.'},
-  {s:'IR',g:['coquimbo'],r:'Alfaro, A.; Brantt, C.; Parra J. 2025. Susceptibilidad de remociones en masa y geomorfología de la zona fronteriza del Paso del Agua Negra, región de Coquimbo, Chile. Servicio Nacional de Geología y Minería, Informe Registrado IR-25-121 (Inédito): 117 p., 2 mapas escala 1:50.000. Santiago.'},
+  {t:'RM',s:'IR',g:['coquimbo'],r:'Alfaro, A.; Brantt, C.; Parra J. 2025. Susceptibilidad de remociones en masa y geomorfología de la zona fronteriza del Paso del Agua Negra, región de Coquimbo, Chile. Servicio Nacional de Geología y Minería, Informe Registrado IR-25-121 (Inédito): 117 p., 2 mapas escala 1:50.000. Santiago.'},
+  {t:'RM',s:'IR',g:['coquimbo'],r:'Alfaro, A.; Pantoja, G.; Brantt, C. 2018. Peligro de remociones en masa en la región de Coquimbo-Sector Norte. Servicio Nacional de Geología y Minería, Informe Registrado IR-18-68 (inédito): 40 p., 1 mapa escala 1:250.000, 3 anexos. Santiago.'},
+  {t:'RM',s:'IR',g:['atacama'],r:'Baeza, L.; Lacassie, J.P.; Carrasco, F. 2020. Impacto de las remociones en masa de marzo de 2015 en el sistema fluvial del río Salado, región de Atacama: análisis comparativo de la geoquímica de sedimentos. Servicio Nacional de Geología y Minería, Informe Registrado IR-20-82 (inédito): 108 p. Santiago.'},
+  {t:'RM',s:'IR',g:['coquimbo'],r:'Brantt, C.; Pantoja, G.; Muñoz, A. 2021. Peligro de remociones en masa en el sector sur de la región de Coquimbo. Servicio Nacional de Geología y Minería, Informe Registrado IR-21-88 (inédito): 107 p., 1 mapa escala 1:250.000. Santiago.'},
+  {t:'RM',s:'IR',g:['atacama'],r:'Fernández, J.; Espinoza, L. 2020. Compilación y análisis del registro histórico de remociones en masa tipo flujo en la cuenca del río Copiapó, región de Atacama. Servicio Nacional de Geología y Minería, Informe Registrado IR-20-83 (inédito): 81 p. Santiago.'},
+  {t:'RM',s:'IR',g:['atacama'],r:'Fernández, J.; Espinoza, L. 2022. Susceptibilidad de remociones en masa en la cuenca del río Copiapó, región de Atacama. Servicio Nacional de Geología y Minería, Informe Registrado IR-22-99 (Inédito): 20 p., 1 mapa en 4 hojas, escala 1:100.000. Santiago.'},
+  {t:'RM',s:'BO',g:[],r:'Hauser, A. 1993. Remociones en masa en Chile (versión actualizada). Servicio Nacional de Geología y Minería, Boletín 59: 89 p. Santiago.'},
+  {t:'RM',s:'BO',g:[],r:'Hauser, A. 1993. Remociones en masa en Chile. Servicio Nacional de Geología y Minería, Boletín 45: 75 p. Santiago.'},
+  {t:'RM',s:'IR',g:['atacama'],r:'Lacassie, J.P.; Carrasco, F.; Baeza, L. 2019. Impacto de las remociones en masa de marzo de 2015 en el sistema fluvial del río Copiapó, región de Atacama: análisis comparativo de la geoquímica de sedimentos. Servicio Nacional de Geología y Minería, Informe Registrado IR-19-77 (inédito): 84 p. Santiago.'},
+  {t:'RM',s:'IR',g:['valparaiso'],r:'Lépez, L.; Wall, R.; Prat, M. 2005. Peligro de remociones en masa e inundaciones de las ciudades de Valparaíso, Viña del Mar y Concón, Región de Valparaíso. Servicio Nacional de Geología y Minería, Informe Registrado IR-05-29 (inédito). Santiago.'},
+  {t:'RM',s:'IR',g:['coquimbo'],r:'Opazo, E.; Escudero, I., Neira, H. 2017. Remociones en masa tipo flujo de marzo de 2015 y sus efectos sobre los centros poblados en la cuenca del río Elqui, región de Coquimbo. Servicio Nacional de Geología y Minería, Informe Registrado IR-17-66 (inédito): 48 p., 1 mapa a diferentes escalas. Santiago.'},
+  {t:'RM',s:'PGM',g:[],r:'Publicación Geológica Multinacional. 2007. Conozcamos los peligros geológicos de la región andina. Proyecto Multinacional Andino: Geociencias para las Comunidades Andinas. Servicio Nacional de Geología y Minería, Publicación Geológica Multinacional 5: 78 p., 1 mapa escala 1:7.500.000. Santiago.'},
+  {t:'RM',s:'PGM',g:[],r:'Publicación Geológica Multinacional. 2007. Movimientos en Masa en la Región Andina. Una guía para la evaluación de amenazas. Proyecto Multinacional Andino: Geociencias para las Comunidades Andinas. Servicio Nacional de Geología y Minería, Publicación Geológica Multinacional 4: 404 p., 1 CD-Rom. Santiago.'},
+  {t:'RM',s:'PGM',g:[],r:'Publicación Geológica Multinacional. 2008. Experiencias andinas en mitigación de riesgos geológicos. Proyecto Multinacional Andino: Geociencias para las Comunidades Andinas. Servicio Nacional de Geología y Minería, Publicación Geológica Multinacional 6: 106 p. Santiago.'},
+  {t:'OT',s:'IR',g:['valparaiso'],r:'Sernageomin. 2004. Geología para el ordenamiento territorial de la Región de Valparaíso. Servicio Nacional de Geología y Minería, Informe Registrado IR-04-23 (inédito): 49 p., 2 mapas escala 1:250.000. Santiago'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Abad, E. 1980. Geología de los Cuadrángulos Estación Algarrobal, Yerbas Buenas, Cerro Blanco, Merceditas y Tres Morros, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile 38: 48 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Arévalo, C. 2005. Carta Copiapó, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 91: 54 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Arévalo, C. 2005. Carta Los Loros, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 92: 54 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'IR',g:['coquimbo'],r:'Arévalo, C.; Creixell, C.; Mourgues, F.A. 2010. Geología del área Cruz Grande-Junta de Chingoles, región de Coquimbo. Servicio Nacional de Geología y Minería, Informe Registrado IR-10-40 (inédito): 133 p., 6 mapas escala 1:50.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Arévalo, C.; Mourgues, F.; Chávez, R. 2009. Geología del área Vallenar-Domeyko, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 120: 64 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Clavero, J.; Mpodozis, C.; Gardeweg, M.; Valenzuela, M. 2012. Geología de las áreas Laguna Wheelwright y Paso San Francisco, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 139-140: 32 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['coquimbo'],r:'Coloma, F.; Álvarez, J.; Creixell, C.; Emparán, C.; Salazar, E.; Calderón, M. 2020. Geología de las áreas Ovalle y Peña Blanca, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 208-209: 115 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Cornejo, P.; Mpodozis, C.; Tomlinson, A. 1998. Hoja Salar de Maricunga, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 7, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama','coquimbo'],r:'Creixell, C.; Labbé, M.; Arévalo, C.; Salazar, E. 2013. Geología del área Estación Chañar-Junta de Chingoles, regiones de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 150: 85 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama','coquimbo'],r:'Creixell, C.; Ortiz, M.; Arévalo, C. 2012. Geología del área Carrizalillo-El Tofo, región de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 133-134: 82 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['coquimbo'],r:'Emparán, C.; Pineda, G. 2000. Área La Serena-La Higuera, Región de Coquimbo. Servicio Nacional de Geología y Minería, Mapas Geológicos 18, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['coquimbo'],r:'Emparan, C.; Pineda, G. 2006. Geología del área Andacollo-Puerto Aldea, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 96: 85 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['valparaiso'],r:'Gana, P.; Wall, R. 1996. Mapa geológico del área de Valparaíso-Curacaví, regiones de Valparaíso y Metropolitana. Servicio Nacional de Geología y Minería, Mapas Geológicos 1: 20 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Godoy, E.; Lara, L. 1998. Hojas Chañaral y Diego de Almagro, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 5-6, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Godoy, E.; Lara, L. 1999. Hoja Puerto Flamenco, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 15, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Iriarte, S.; Arévalo, C.; Mpodozis, C. 1999. Hoja La Guardia, Región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 13, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Iriarte, S.; Arévalo, C.; Mpodozis, C.; Rivero, O. 1996. Mapa Geológico de la Hoja Carrera Pinto, Región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 3, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Lara, L.; Godoy, E. 1998. Hoja Quebrada Salitrosa, Región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 4, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['valparaiso'],r:'Lara, L.; Reyes, J.; Sepúlveda, P.; Orozco, G.; Piña, M.; Becerril, L. 2022. Geología de las islas Robinson Crusoe y Santa Clara, región de Valparaíso. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 213: 42 p., 1 mapa escala 1:25.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Martínez, F.; Peña, M.; Arriagada, C. 2015. Geología del área Iglesia Colorada-Cerro del Potro y Cerro Mondaquita, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 179-180: 65 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Mercado, M. 1978. Geología de la Cordillera de la Costa entre Chañaral y Caldera, región de Atacama. Instituto de Investigaciones Geológicas, Carta Geológica de Chile 27: 15 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Mercado, M. 1980. Geología del área Pan de Azúcar, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile 37: 30 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['coquimbo'],r:'Merino, R.N.; Ortiz, M.; Coloma, F. 2025. Geología del área Cordillera de Doña Rosa-Paso de Los Azules, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 221: 72 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Mpodozis, C.; Iriarte, S.; Gardeweg, M.; Valenzuela, M. 2012. Carta Laguna del Negro Francisco, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 145: 30 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama','coquimbo'],r:'Murillo, I.; Velásquez, R.; Creixell, C. 2017. Geología de las áreas Guanta-Los Cuartitos y paso de Vacas Heladas, regiones de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 192-193: 96 p., 1 mapa escala 1:100.000, 1 CD con anexos. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Naranjo, J.A.; Villa, V.; Venegas, C. 2013. Geología de las áreas Salar de Aguilar y Portezuelo del León Muerto, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 151-152: 45 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Naranjo, J.A.; Villa, V.; Venegas, C. 2013. Geología de las áreas Salar de Pajonales y Cerro Moño, regiones de Antofagasta y Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 153-154: 46 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama','coquimbo'],r:'Ortiz, M.; Merino, R. 2015. Geología de las áreas Río Chollay-Matancilla y Cajón del Encierro, regiones de Atacama y Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 175-176: 234 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['coquimbo'],r:'Pineda, G. 2008. Geología del área Monte Patria-El Maqui, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 116: 44 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['coquimbo'],r:'Pineda, G.; Emparán, C. 2006. Geología del área Vicuña-Pichasca, Región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 97: 40 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Salazar, E.; Coloma, F. 2016. Geología del área Cerros Cantaritos-Laguna Chica, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 181: 171 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Salazar, E.; Coloma, F.; Creixell, C. 2013. Geología del área El Tránsito-Lagunillas, región de Atacama. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 149: 106 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['atacama'],r:'Tomlinson, A.J.; Cornejo, P.; Mpodozis, C. 1999. Hoja Potrerillos, región de Atacama. Servicio Nacional de Geología y Minería, Mapas Geológicos 14, 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['coquimbo'],r:'Velásquez, R.; Coloma, F.; Murillo, I.; Merino, R.N.; Ortiz, M. 2021. Geología de las áreas Pisco Elqui y Paso del Agua Negra, región de Coquimbo. Servicio Nacional de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 211-212: 201 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'MG',g:['valparaiso'],r:'Wall, R.; Gana, P. 1996. Mapa geológico del area de San Antonio-Melipilla: regiones de Valparaíso, Metropolitana y del Libertador General Bernardo O’Higgins. Servicio Ncional de Geología y Minería, Mapas Geológicos 2: 20 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Welkner, D.; Arévalo, C.; Godoy, E. 2006. Geología del área Freirina-El Morado, región de Atacama. Servicio de Geología y Minería, Carta Geológica de Chile, Serie Geología Básica 100: 50 p., 1 mapa escala 1:100.000. Santiago.'},
+  {t:'MAP',s:'B',g:['atacama'],r:'Welkner, D.; Arévalo, C.; Godoy, E. 2008. Geología del Área Carrizal Bajo-Chacritas, Región de Atacama. Servicio Nacional de Geología y Minería, Serie Geología Básica: 67 p., 1 mapa escala 1:100.000. Santiago.'},
 ];
 
 // ---- Selector de referencias (Paso 6) -------------------------------------------
@@ -2264,43 +2268,67 @@ function refsVisibles() {
   const q = (document.getElementById('refs-buscar')?.value || '').trim().toLowerCase();
   const reg = refRegionActual();
   return REFERENCIAS.filter(x => {
-    // Lo ya marcado NUNCA se oculta por el filtro de región: si no, una referencia de otra
-    // región quedaba seleccionada e invisible, entrando al informe sin poder desmarcarla.
-    // La búsqueda sí se respeta tal cual, porque ahí el usuario está acotando a propósito.
-    if (refsSoloRegion && reg && x.g.length && !x.g.includes(reg) && !refsSel.has(x.r)) return false;
+    // Filtro puro: lo marcado no necesita excepción acá porque renderRefs lo muestra siempre
+    // en el bloque "Marcadas" de arriba.
+    if (refsSoloRegion && reg && x.g.length && !x.g.includes(reg)) return false;
     if (q && !x.r.toLowerCase().includes(q)) return false;
     return true;
   });
 }
+// Una fila de la lista (checkbox + serie + texto de la referencia).
+function refFila(x) {
+  const row = document.createElement('label');
+  row.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:6px 4px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;font-size:0.78rem;line-height:1.35';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.checked = refsSel.has(x.r);
+  cb.style.cssText = 'margin-top:2px;flex:0 0 auto;width:18px;height:18px';
+  cb.addEventListener('change', () => {
+    if (cb.checked) refsSel.add(x.r); else refsSel.delete(x.r);
+    renderRefs();   // redibuja para que la referencia entre o salga del bloque "Marcadas"
+  });
+  // se arma con textContent (no innerHTML): las referencias son texto plano y así no hay
+  // que escapar nada. escapeHtml() además vive dentro de buildKML, no es visible acá.
+  const txt = document.createElement('span');
+  const serie = document.createElement('b');
+  serie.style.cssText = 'color:var(--muted);font-size:0.68rem';
+  serie.textContent = REF_SERIES[x.s] || x.s;   // badge de serie: distingue carta de informe registrado
+  txt.appendChild(serie);
+  txt.appendChild(document.createElement('br'));
+  txt.appendChild(document.createTextNode(x.r));
+  row.appendChild(cb); row.appendChild(txt);
+  return row;
+}
+function refSubtitulo(texto) {
+  const h = document.createElement('div');
+  h.textContent = texto;
+  h.style.cssText = 'font-size:0.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:8px 4px 3px;position:sticky;top:0;background:var(--dark)';
+  return h;
+}
 function renderRefs() {
   const cont = document.getElementById('refs-lista');
   if (!cont) return;
-  const vis = refsVisibles();
   const reg = refRegionActual();
-  cont.innerHTML = vis.length ? '' : '<p style="color:var(--muted);font-size:0.8rem;padding:8px">Sin resultados para esa búsqueda.</p>';
-  vis.forEach(x => {
-    const id = 'ref-' + REFERENCIAS.indexOf(x);
-    const row = document.createElement('label');
-    row.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:6px 4px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;font-size:0.78rem;line-height:1.35';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.id = id; cb.checked = refsSel.has(x.r);
-    cb.style.cssText = 'margin-top:2px;flex:0 0 auto;width:18px;height:18px';
-    cb.addEventListener('change', () => {
-      if (cb.checked) refsSel.add(x.r); else refsSel.delete(x.r);
-      actualizarRefsContador();
+  cont.innerHTML = '';
+  // Bloque "Marcadas" fijo arriba: lo seleccionado se ve SIEMPRE, aunque no calce con la
+  // región ni con la búsqueda. Antes, al buscar otra cosa, la referencia recién marcada
+  // salía de los resultados y se veía como si la marca se hubiera perdido.
+  const marcadas = REFERENCIAS.filter(x => refsSel.has(x.r));
+  if (marcadas.length) {
+    cont.appendChild(refSubtitulo('Marcadas (' + marcadas.length + ')'));
+    marcadas.forEach(x => cont.appendChild(refFila(x)));
+  }
+  // Resto: lo que pasa los filtros y todavía no está marcado (no se repite arriba).
+  const resto = refsVisibles().filter(x => !refsSel.has(x.r));
+  if (resto.length) {
+    if (marcadas.length) cont.appendChild(refSubtitulo('Disponibles'));
+    let temaPrev = null;
+    resto.forEach(x => {
+      if (x.t !== temaPrev) { cont.appendChild(refSubtitulo(REF_TEMAS[x.t] || '')); temaPrev = x.t; }
+      cont.appendChild(refFila(x));
     });
-    // se arma con textContent (no innerHTML): las referencias son texto plano y así no hay
-    // que escapar nada. escapeHtml() además vive dentro de buildKML, no es visible acá.
-    const txt = document.createElement('span');
-    const serie = document.createElement('b');
-    serie.style.cssText = 'color:var(--muted);font-size:0.68rem';
-    serie.textContent = REF_SERIES[x.s] || x.s;   // badge de serie: distingue carta de informe registrado
-    txt.appendChild(serie);
-    txt.appendChild(document.createElement('br'));
-    txt.appendChild(document.createTextNode(x.r));
-    row.appendChild(cb); row.appendChild(txt);
-    cont.appendChild(row);
-  });
+  } else if (!marcadas.length) {
+    cont.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;padding:8px">Sin resultados para esa búsqueda.</p>';
+  }
   const btn = document.getElementById('refs-toggle-region');
   if (btn) {
     btn.classList.toggle('selected', refsSoloRegion && !!reg);
@@ -2320,14 +2348,19 @@ document.getElementById('refs-toggle-region')?.addEventListener('click', () => {
   refsSoloRegion = !refsSoloRegion;
   renderRefs();
 });
-// Referencias marcadas, en el orden del listado (serie y luego el orden institucional).
+// Referencias marcadas para el informe: por tema (remociones → ordenamiento territorial →
+// mapas y cartas) y alfabético por autor dentro de cada tema. Como REFERENCIAS ya viene en
+// ese orden, basta respetar su posición; una referencia de una RM antigua que ya no esté en
+// el listado se ordena alfabéticamente al final, sin perderse.
 function referenciasOrdenadas(lista) {
   const sel = (lista || []).filter(Boolean);
-  const conMeta = sel.map(t => REFERENCIAS.find(x => x.r === t) || { s: '', r: t });
+  const conMeta = sel.map(t => REFERENCIAS.find(x => x.r === t) || { t: '', s: '', r: t });
   return conMeta.slice().sort((a, b) => {
-    const ia = REF_SERIES_ORDEN.indexOf(a.s), ib = REF_SERIES_ORDEN.indexOf(b.s);
-    if (ia !== ib) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-    return REFERENCIAS.findIndex(x => x.r === a.r) - REFERENCIAS.findIndex(x => x.r === b.r);
+    const ia = REFERENCIAS.findIndex(x => x.r === a.r), ib = REFERENCIAS.findIndex(x => x.r === b.r);
+    if (ia >= 0 && ib >= 0) return ia - ib;
+    if (ia >= 0) return -1;
+    if (ib >= 0) return 1;
+    return a.r.localeCompare(b.r, 'es', { sensitivity: 'base' });
   });
 }
 
