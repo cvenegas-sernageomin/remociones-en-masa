@@ -889,14 +889,12 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
-    <label>Fecha de inspección <button class="help-btn" data-help="fecha-inspeccion">?</button></label>
-    <input type="date" id="fecha-inspeccion">
-    <p style="font-size:0.72rem;color:var(--muted);margin:4px 0 0">Día en que se visitó el terreno. Es distinta de la fecha del evento y de la hora de ingreso (cuándo se llenó esta ficha).</p>
-  </div>
-
-  <div class="field">
-    <label>Hora de ingreso</label>
+    <label>Fecha y hora de inspección</label>
     <input type="text" id="hora-ingreso" readonly style="color:var(--muted)">
+    <!-- misma marca de tiempo en ISO (AAAA-MM-DD), para no depender de parsear el
+         texto localizado: toLocaleString cambia de formato entre navegadores/dispositivos -->
+    <input type="hidden" id="fecha-ingreso-iso">
+    <p style="font-size:0.72rem;color:var(--muted);margin:4px 0 0">Se completa sola al llegar a este paso: es el momento en que se registra la ficha en terreno. En el informe aparece como fecha de inspección.</p>
   </div>
 
   <button type="button" id="btn-guardar-rm" style="width:100%;margin-top:16px;padding:14px;background:#16a34a;border:none;border-radius:10px;color:#fff;cursor:pointer;font-size:1rem;font-weight:600">
@@ -1037,7 +1035,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v73';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v74';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1065,11 +1063,12 @@ function goToStep(n) {
   document.getElementById('btn-prev').style.display = n > 1 ? 'block' : 'none';
   document.getElementById('btn-next').style.display = n < TOTAL_STEPS ? 'block' : 'none';
   if (n === TOTAL_STEPS) {
-    document.getElementById('hora-ingreso').value = new Date().toLocaleString('es-CL');
-    // Fecha de inspección: se propone hoy, pero queda editable (la ficha puede llenarse
-    // días después de la visita). Solo se autocompleta si el usuario aún no puso nada.
-    const fi = document.getElementById('fecha-inspeccion');
-    if (fi && !fi.value) fi.value = new Date().toLocaleDateString('en-CA');   // en-CA = AAAA-MM-DD, formato que exige <input type=date>
+    // Marca de tiempo del registro en terreno = fecha de inspección del informe. Se guarda
+    // dos veces a propósito: legible para el usuario y en ISO para los documentos, así no
+    // hay que reparsear un texto cuyo formato depende del navegador.
+    const ahora = new Date();
+    document.getElementById('hora-ingreso').value = ahora.toLocaleString('es-CL');
+    { const fi = document.getElementById('fecha-ingreso-iso'); if (fi) fi.value = ahora.toLocaleDateString('en-CA'); }   // en-CA = AAAA-MM-DD
     const savedAutor = localStorage.getItem('rem-autor') || '';
     if (!document.getElementById('autor').value) {
       document.getElementById('autor').value = savedAutor;
@@ -2046,10 +2045,6 @@ const HELP_TEXTS = {
   autor: {
     title: 'Autor del registro',
     text: 'Tu nombre completo. Se guardará automáticamente para los próximos registros en este dispositivo.'
-  },
-  'fecha-inspeccion': {
-    title: 'Fecha de inspección',
-    text: 'Día en que efectivamente se visitó el terreno. Es un dato distinto de la fecha del evento (cuándo ocurrió la remoción) y de la hora de ingreso (cuándo se llenó esta ficha, que puede ser días después). El informe RETERM la usa para separar lo ocurrido de lo observado en terreno. Por defecto se propone hoy; cámbiala si estás ingresando una inspección de otro día.'
   }
 };
 
@@ -2192,6 +2187,21 @@ const ETIQUETAS = {
 function etiq(cod) { return ETIQUETAS[cod] || cod || ''; }
 function etiqLista(arr, sep = ', ') { return (arr || []).map(etiq).join(sep); }
 
+// ---- Fecha de inspección --------------------------------------------------------
+// La ficha se llena en terreno, así que el momento de registro ES la fecha de inspección:
+// no se pide aparte (un segundo campo editable solo permitiría que ambos se contradigan).
+// Se toma de 'fecha-ingreso-iso' (AAAA-MM-DD, guardado junto a la hora de ingreso) y, para
+// las RM guardadas antes de que ese campo existiera, se parsea la fecha del texto localizado
+// 'hora-ingreso' ("23-07-2026, 9:48:13 p. m."), aceptando '-' o '/' como separador porque
+// toLocaleString no da el mismo formato en todos los navegadores.
+function fechaInspeccionDe(data) {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data['fecha-ingreso-iso'] || '');
+  if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+  const loc = /^\s*(\d{1,2})[-/](\d{1,2})[-/](\d{4})/.exec(data['hora-ingreso'] || '');
+  if (loc) return `${loc[1].padStart(2, '0')}-${loc[2].padStart(2, '0')}-${loc[3]}`;
+  return null;
+}
+
 // ---- Concordancia singular/plural en las personas afectadas ----------------------
 // El select guarda siempre la categoría en plural ('Evacuados'), así que con 1 persona
 // salía "se reportan evacuados (1 personas)". Se redacta según el número informado.
@@ -2286,7 +2296,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
   ${row('Coordenadas', coords ? `${coords.lat.toFixed(6)}, ${(coords.lng ?? coords.lon).toFixed(6)}` : null)}
   ${row('Fecha del evento', fechaStr)}
   ${row('Hora', horaStr)}
-  ${row('Fecha de inspección', (() => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data['fecha-inspeccion'] || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : data['fecha-inspeccion']; })())}
+  ${row('Fecha de inspección', fechaInspeccionDe(data))}
   ${row('Desencadenante', campoTxt(data, 'desencadenante'))}
 </table>
 <h3 style="color:#555;margin-top:12px">📐 Morfometría</h3>
@@ -2332,7 +2342,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 ${data.efectos ? `<h3 style="color:#555;margin-top:12px">📝 Efectos</h3><p>${escapeHtml(data.efectos)}</p>` : ''}
 ${data.otros ? `<h3 style="color:#555;margin-top:12px">💬 Otros</h3><p>${escapeHtml(data.otros)}</p>` : ''}
 <hr style="margin:16px 0">
-<p style="color:#888;font-size:11px">Autor: ${escapeHtml(data.autor) || 'No registrado'} | Ingreso: ${escapeHtml(data['hora-ingreso'])}</p>
+<p style="color:#888;font-size:11px">Autor: ${escapeHtml(data.autor) || 'No registrado'} | Inspección: ${escapeHtml(data['hora-ingreso'])}</p>
 ${fotosHTML}
 ${satelitalHTML}
 </div>
@@ -3132,7 +3142,7 @@ function collectFormData() {
     autor: document.getElementById('autor')?.value,
     'prof-iniciales': document.getElementById('prof-iniciales')?.value,
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
-    'fecha-inspeccion': document.getElementById('fecha-inspeccion')?.value,
+    'fecha-ingreso-iso': document.getElementById('fecha-ingreso-iso')?.value,
     region: ultimaComunaRegion ? ultimaComunaRegion.region : regionFromCoords(getCoords()),
     comuna: ultimaComunaRegion ? ultimaComunaRegion.comuna : '',
     provincia: ultimaComunaRegion ? ultimaComunaRegion.provincia : '',
@@ -3345,16 +3355,10 @@ async function generateRETERM(record, ret) {
       if (data['fecha-fin']) s += ' — ' + data['fecha-fin'];
       return s;
     })();
-    // Fecha de la visita a terreno — distinta de la fecha del evento. Se muestra en formato
-    // chileno (dd-mm-aaaa) a partir del valor AAAA-MM-DD del <input type=date>; se arma a
-    // mano y NO con new Date(), porque "2026-07-23" se parsea como UTC y en Chile (UTC-3/-4)
-    // retrocede un día al formatear en local.
-    const fechaInspStr = (() => {
-      const v = data['fecha-inspeccion'];
-      if (!v) return null;
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
-      return m ? `${m[3]}-${m[2]}-${m[1]}` : v;
-    })();
+    // Fecha de la visita a terreno (= momento de registro de la ficha), distinta de la del
+    // evento. Se arma a mano desde AAAA-MM-DD y NO con new Date(), porque "2026-07-23" se
+    // parsea como UTC y en Chile (UTC-3/-4) retrocede un día al formatear en local.
+    const fechaInspStr = fechaInspeccionDe(data);
     const estado = data.amenaza === 'si' ? 'Activo' : data.amenaza === 'no' ? 'Inactivo' : data.amenaza === 'incierta' ? 'En evaluación' : 'No evaluado';
     const region = data.region || 'XXXX';
     const regionCorta = region.replace(/\s*\(.*\)/, '').toUpperCase();
@@ -4039,9 +4043,9 @@ async function entregaDescargar() {
 function resetFormForNewRM() {
   document.querySelectorAll('.step input, .step select, .step textarea')
     .forEach(el => {
-      // fecha-inspeccion se conserva como autor/iniciales: en una jornada se describen
-      // varias RM el mismo día de visita, así no hay que reescribirla en cada ficha.
-      if (['hora-ingreso', 'autor', 'prof-iniciales', 'n-reterm', 'fecha-inspeccion'].includes(el.id)) return;
+      // hora-ingreso y fecha-ingreso-iso son el mismo dato (marca de registro): se conservan
+      // juntos para que nunca quede uno sin el otro. Igual se refrescan al volver al paso final.
+      if (['hora-ingreso', 'fecha-ingreso-iso', 'autor', 'prof-iniciales', 'n-reterm'].includes(el.id)) return;
       if (el.type === 'checkbox') el.checked = false;
       else el.value = '';
     });
@@ -4101,7 +4105,7 @@ function populateForm(rec) {
   setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
   setEl('recom-libre', d['recomendaciones-libre']);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso','fecha-inspeccion']
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso','fecha-ingreso-iso']
     .forEach(id => setEl(id, d[id]));
   setEl('n-reterm', d['n-reterm'] || 'XX');
   { const lf = document.getElementById('lluvia-fuente'); if (lf && d['lluvia-fuente']) lf.textContent = d['lluvia-fuente']; }
