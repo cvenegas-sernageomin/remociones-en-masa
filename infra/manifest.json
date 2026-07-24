@@ -1,0 +1,312 @@
+{
+ "sectores": {
+  "agua": {
+   "label": "Agua",
+   "icon": "💧",
+   "color": "#38bdf8"
+  },
+  "energia": {
+   "label": "Energía",
+   "icon": "⚡",
+   "color": "#f59e0b"
+  },
+  "relaves": {
+   "label": "Relaves",
+   "icon": "⛏️",
+   "color": "#92400e"
+  },
+  "salud": {
+   "label": "Salud",
+   "icon": "🏥",
+   "color": "#f43f5e"
+  },
+  "transporte": {
+   "label": "Transporte",
+   "icon": "🚦",
+   "color": "#a855f7"
+  },
+  "seguridad": {
+   "label": "Seguridad",
+   "icon": "🚨",
+   "color": "#ef4444"
+  },
+  "educacion": {
+   "label": "Educación",
+   "icon": "📚",
+   "color": "#06b6d4"
+  }
+ },
+ "capas": [
+  {
+   "id": "agua_potable_rural",
+   "sector": "agua",
+   "label": "Agua Potable Rural",
+   "archivo": "agua_agua_potable_rural.json",
+   "kind": "point",
+   "n": 1734,
+   "pesada": false
+  },
+  {
+   "id": "bocatomas",
+   "sector": "agua",
+   "label": "Bocatomas",
+   "archivo": "agua_bocatomas.json",
+   "kind": "point",
+   "n": 8707,
+   "pesada": false
+  },
+  {
+   "id": "establecimientos_educacion",
+   "sector": "educacion",
+   "label": "Establecimientos Educacionales",
+   "archivo": "educacion_establecimientos_educacion.json",
+   "kind": "point",
+   "n": 14177,
+   "pesada": false
+  },
+  {
+   "id": "almacenes_combustible",
+   "sector": "energia",
+   "label": "Almacenes de Combustible",
+   "archivo": "energia_almacenes_combustible.json",
+   "kind": "point",
+   "n": 71,
+   "pesada": false
+  },
+  {
+   "id": "centrales_eolicas",
+   "sector": "energia",
+   "label": "Centrales Eólicas",
+   "archivo": "energia_centrales_eolicas.json",
+   "kind": "point",
+   "n": 55,
+   "pesada": false
+  },
+  {
+   "id": "centrales_geotermicas",
+   "sector": "energia",
+   "label": "Centrales Geotérmicas",
+   "archivo": "energia_centrales_geotermicas.json",
+   "kind": "point",
+   "n": 1,
+   "pesada": false
+  },
+  {
+   "id": "centrales_hidroelectricas",
+   "sector": "energia",
+   "label": "Centrales Hidroeléctricas",
+   "archivo": "energia_centrales_hidroelectricas.json",
+   "kind": "point",
+   "n": 182,
+   "pesada": false
+  },
+  {
+   "id": "centrales_solares",
+   "sector": "energia",
+   "label": "Centrales Solares",
+   "archivo": "energia_centrales_solares.json",
+   "kind": "point",
+   "n": 457,
+   "pesada": false
+  },
+  {
+   "id": "centrales_biomasa",
+   "sector": "energia",
+   "label": "Centrales de Biomasa",
+   "archivo": "energia_centrales_biomasa.json",
+   "kind": "point",
+   "n": 32,
+   "pesada": false
+  },
+  {
+   "id": "gasoductos",
+   "sector": "energia",
+   "label": "Gasoductos",
+   "archivo": "energia_gasoductos.json",
+   "kind": "line",
+   "n": 58,
+   "pesada": false
+  },
+  {
+   "id": "lineas_sea",
+   "sector": "energia",
+   "label": "Líneas Eléctricas SEA",
+   "archivo": "energia_lineas_sea.json",
+   "kind": "line",
+   "n": 16,
+   "pesada": false
+  },
+  {
+   "id": "lineas_sem",
+   "sector": "energia",
+   "label": "Líneas Eléctricas SEM",
+   "archivo": "energia_lineas_sem.json",
+   "kind": "line",
+   "n": 1,
+   "pesada": false
+  },
+  {
+   "id": "lineas_sic",
+   "sector": "energia",
+   "label": "Líneas Eléctricas SIC",
+   "archivo": "energia_lineas_sic.json",
+   "kind": "line",
+   "n": 807,
+   "pesada": false
+  },
+  {
+   "id": "lineas_sing",
+   "sector": "energia",
+   "label": "Líneas Eléctricas SING",
+   "archivo": "energia_lineas_sing.json",
+   "kind": "line",
+   "n": 151,
+   "pesada": false
+  },
+  {
+   "id": "oleoductos",
+   "sector": "energia",
+   "label": "Oleoductos",
+   "archivo": "energia_oleoductos.json",
+   "kind": "line",
+   "n": 29,
+   "pesada": false
+  },
+  {
+   "id": "subestaciones_sea",
+   "sector": "energia",
+   "label": "Subestaciones SEA",
+   "archivo": "energia_subestaciones_sea.json",
+   "kind": "point",
+   "n": 26,
+   "pesada": false
+  },
+  {
+   "id": "subestaciones_sem",
+   "sector": "energia",
+   "label": "Subestaciones SEM",
+   "archivo": "energia_subestaciones_sem.json",
+   "kind": "point",
+   "n": 5,
+   "pesada": false
+  },
+  {
+   "id": "subestaciones_sic",
+   "sector": "energia",
+   "label": "Subestaciones SIC",
+   "archivo": "energia_subestaciones_sic.json",
+   "kind": "point",
+   "n": 697,
+   "pesada": false
+  },
+  {
+   "id": "subestaciones_sing",
+   "sector": "energia",
+   "label": "Subestaciones SING",
+   "archivo": "energia_subestaciones_sing.json",
+   "kind": "point",
+   "n": 167,
+   "pesada": false
+  },
+  {
+   "id": "terminales_maritimos_descarga",
+   "sector": "energia",
+   "label": "Terminales Marítimos de Descarga",
+   "archivo": "energia_terminales_maritimos_descarga.json",
+   "kind": "point",
+   "n": 29,
+   "pesada": false
+  },
+  {
+   "id": "termoelectricas",
+   "sector": "energia",
+   "label": "Termoeléctricas",
+   "archivo": "energia_termoelectricas.json",
+   "kind": "point",
+   "n": 157,
+   "pesada": false
+  },
+  {
+   "id": "relaves_sernageomin_2025",
+   "sector": "relaves",
+   "label": "Relaves (SERNAGEOMIN, oct. 2025)",
+   "archivo": "relaves_relaves_sernageomin_2025.json",
+   "kind": "point",
+   "n": 836,
+   "pesada": false
+  },
+  {
+   "id": "establecimientos_salud",
+   "sector": "salud",
+   "label": "Establecimientos de Salud",
+   "archivo": "salud_establecimientos_salud.json",
+   "kind": "point",
+   "n": 4613,
+   "pesada": false
+  },
+  {
+   "id": "carabineros",
+   "sector": "seguridad",
+   "label": "Cuarteles de Carabineros",
+   "archivo": "seguridad_carabineros.json",
+   "kind": "point",
+   "n": 929,
+   "pesada": false
+  },
+  {
+   "id": "bomberos",
+   "sector": "seguridad",
+   "label": "Parques de Bomberos",
+   "archivo": "seguridad_bomberos.json",
+   "kind": "point",
+   "n": 1165,
+   "pesada": false
+  },
+  {
+   "id": "infraestructura_portuaria",
+   "sector": "transporte",
+   "label": "Infraestructura Portuaria",
+   "archivo": "transporte_infraestructura_portuaria.json",
+   "kind": "point",
+   "n": 414,
+   "pesada": false
+  },
+  {
+   "id": "puentes",
+   "sector": "transporte",
+   "label": "Puentes",
+   "archivo": "transporte_puentes.json",
+   "kind": "point",
+   "n": 6618,
+   "pesada": false
+  },
+  {
+   "id": "red_aeroportuaria",
+   "sector": "transporte",
+   "label": "Red Aeroportuaria",
+   "archivo": "transporte_red_aeroportuaria.json",
+   "kind": "point",
+   "n": 338,
+   "pesada": false
+  },
+  {
+   "id": "red_ferrea",
+   "sector": "transporte",
+   "label": "Red Férrea",
+   "archivo": "transporte_red_ferrea.json",
+   "kind": "line",
+   "n": 4049,
+   "pesada": false
+  },
+  {
+   "id": "red_vial",
+   "sector": "transporte",
+   "label": "Red Vial",
+   "archivo": "transporte_red_vial.json",
+   "kind": "line",
+   "n": 12609,
+   "pesada": true
+  }
+ ],
+ "generado": "2026-07-24"
+}

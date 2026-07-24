@@ -1003,6 +1003,10 @@ body.map-mode #nav-buttons { display: none !important; }
       <button class="map-btn" id="mapa-ipt" title="Instrumentos de Planificación Territorial por región: límites urbanos, planes reguladores comunales e intercomunales">🏛️ IPT</button>
       <small class="map-btn-src">por región</small>
     </span>
+    <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-infra" title="Infraestructura crítica: agua, energía, relaves, salud, seguridad, transporte y educación (30 capas)">🏗️ Infraestructura</button>
+      <small class="map-btn-src">agua·energía·salud…</small>
+    </span>
     <button class="map-btn" id="mapa-kmz" title="Cargar un KMZ o KML propio como capa del mapa">📂 KMZ</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
@@ -1070,7 +1074,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v81';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v82';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -5731,6 +5735,169 @@ function toggleIPT() {
   }
 }
 
+// ==== Capa "Infraestructura Crítica" (agua/energía/relaves/salud/seguridad/transporte/
+// educación) — 30 capas convertidas desde fallas-activas-chile/data (proyecto hermano)
+// con tools/generar_infraestructura.py. Mismos sectores/colores que ese visor. Cada capa
+// se baja on-demand (fetch de infra/<sector>_<id>.json) recién al marcar su checkbox —
+// igual filosofía que IPT: nada se precarga, "Red Vial" (capa pesada, ~1.8 MB gzip) parte
+// apagada como AR en IPT. ----
+let infraOn = false, infraManifest = null, infraManifestCargando = false, infraCtrl = null;
+const infraCapas = {};              // id -> {def, data, cargando, sub}
+const INFRA_BASE = 'infra/';
+let infraCanvasR = null;            // un solo renderer canvas compartido (pane 'infra')
+function infraBtnEstado(txt, activo) {
+  const b = document.getElementById('mapa-infra');
+  if (!b) return;
+  b.textContent = txt;
+  b.classList.toggle('active', !!activo);
+}
+function infraAsegurarPane() {
+  if (!mapaFull || infraCanvasR) return;
+  mapaFull.createPane('infra');
+  mapaFull.getPane('infra').style.zIndex = 360;   // sobre IPT (351-358), bajo marcadores de RM
+  infraCanvasR = L.canvas({ pane: 'infra', padding: 0.5 });
+}
+function infraColorSector(sid) {
+  return (infraManifest && infraManifest.sectores[sid] && infraManifest.sectores[sid].color) || '#3388ff';
+}
+// Popup genérico: título = nombre (o "(sin nombre)", igual que el visor original) +
+// tabla con TODOS los atributos no vacíos que trajo la capa (ya filtrados al generar el
+// JSON — ver valor_vacio() en tools/generar_infraestructura.py).
+function infraPopup(cap, props) {
+  const p = props || {};
+  const titulo = p.n || '(sin nombre)';
+  let html = '<b>🏗️ ' + esc2(titulo) + '</b><br/>';
+  html += '<small style="color:#8a94a3">' + esc2(cap.def.label) + '</small>';
+  const attrs = p.a || {};
+  const filas = Object.keys(attrs).map(k =>
+    '<tr><td style="color:#8a94a3;padding:2px 8px 2px 0;white-space:nowrap;vertical-align:top"><b>' + esc2(k) + '</b></td>' +
+    '<td style="padding:2px 0">' + esc2(String(attrs[k])) + '</td></tr>').join('');
+  if (filas) html += '<table style="border-collapse:collapse;margin-top:5px;font-size:0.85em">' + filas + '</table>';
+  return html;
+}
+async function cargarInfraManifest() {
+  if (infraManifest || infraManifestCargando) return;
+  infraManifestCargando = true;
+  try {
+    const resp = await fetch(INFRA_BASE + 'manifest.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    infraManifest = await resp.json();
+    infraManifest.capas.forEach(c => { infraCapas[c.id] = { def: c, data: null, cargando: false, sub: null, on: false }; });
+  } catch (err) {
+    console.warn('infra manifest:', err);
+    toastMapa('⚠️ No se pudo cargar el índice de Infraestructura Crítica (¿sin conexión la 1ª vez?)');
+  } finally {
+    infraManifestCargando = false;
+  }
+}
+async function cargarInfraCapa(id) {
+  const cap = infraCapas[id];
+  if (!cap || cap.cargando || cap.data) return;
+  cap.cargando = true;
+  infraRenderPanel();
+  try {
+    const resp = await fetch(INFRA_BASE + cap.def.archivo, { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    cap.data = data;
+    const color = infraColorSector(cap.def.sector);
+    const g = L.geoJSON(data, {
+      pane: 'infra',
+      renderer: infraCanvasR,
+      style: () => ({ color, weight: cap.def.kind === 'line' ? 2.5 : 1, opacity: 0.85 }),
+      pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, color: '#0a0a0a', weight: 0.6, fillColor: color, fillOpacity: 0.85 }),
+    });
+    // Lazy: igual que el visor original, el popup se arma recién al abrirlo (evita
+    // preparar HTML para miles de features de una sola vez al activar la capa).
+    g.eachLayer(layer => layer.bindPopup(() => infraPopup(cap, layer.feature && layer.feature.properties), POPUP_AUTOPAN));
+    cap.sub = g;
+    if (cap.on) g.addTo(mapaFull);
+  } catch (err) {
+    console.warn('infra ' + id + ':', err);
+    toastMapa('⚠️ No se pudo cargar ' + cap.def.label + ' (¿sin conexión?)');
+    cap.on = false;
+  } finally {
+    cap.cargando = false;
+    infraRenderPanel();
+  }
+}
+function toggleInfraCapa(id, on) {
+  const cap = infraCapas[id];
+  if (!cap) return;
+  cap.on = on;
+  if (on) {
+    if (cap.data) cap.sub.addTo(mapaFull);
+    else cargarInfraCapa(id);
+  } else if (cap.sub && mapaFull.hasLayer(cap.sub)) {
+    mapaFull.removeLayer(cap.sub);
+  }
+  infraRenderPanel();
+}
+function infraCrearControl() {
+  if (infraCtrl || !mapaFull) return;
+  infraCtrl = L.control({ position: 'bottomleft' });
+  infraCtrl.onAdd = () => {
+    const div = L.DomUtil.create('div');
+    div.style.cssText = 'background:#fff;color:#111;border-radius:10px;padding:8px 12px;box-shadow:0 1px 8px rgba(0,0,0,.4);font-size:.78rem;line-height:1.9;user-select:none;max-height:70vh;overflow-y:auto';
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    infraCtrl._div = div;
+    infraRenderPanel();
+    return div;
+  };
+  infraCtrl.addTo(mapaFull);
+}
+// Panel: un bloque por sector (icono+nombre, color sólido — NO var(--fg)/var(--border):
+// gotcha recurrente de variables CSS indefinidas) con sus capas como checkboxes debajo.
+function infraRenderPanel() {
+  if (!infraCtrl || !infraCtrl._div || !infraManifest) return;
+  const div = infraCtrl._div;
+  const lbl = 'display:block;cursor:pointer;color:#111;padding:1px 0';
+  const bySector = {};
+  infraManifest.capas.forEach(c => { (bySector[c.sector] = bySector[c.sector] || []).push(c); });
+  let html = '<b style="font-size:.8rem">🏗️ Infraestructura Crítica</b><br>';
+  Object.keys(infraManifest.sectores).forEach(sid => {
+    const defs = bySector[sid]; if (!defs || !defs.length) return;
+    const sec = infraManifest.sectores[sid];
+    html += '<div style="border-top:1px solid #e5e7eb;margin:5px 0 2px;padding-top:4px">' +
+      '<b style="font-size:.72rem;color:' + esc2(sec.color) + '">' + sec.icon + ' ' + esc2(sec.label) + '</b></div>';
+    defs.forEach(c => {
+      const cap = infraCapas[c.id] || {};
+      const cont = cap.cargando ? ' ⏳' : (cap.data ? ' <span style="color:#8a94a3">(' + cap.data.features.length + ')</span>' : '');
+      const warn = c.pesada ? ' <span style="color:#c0392b">(capa pesada)</span>' : '';
+      html += '<label style="' + lbl + '"><input type="checkbox" data-infra="' + c.id + '"' +
+        (cap.on ? ' checked' : '') + ' style="margin-right:6px;transform:scale(1.1)">' +
+        esc2(c.label) + warn + cont + '</label>';
+    });
+  });
+  div.innerHTML = html;
+  div.querySelectorAll('input[data-infra]').forEach(cb => cb.addEventListener('change', () => {
+    toggleInfraCapa(cb.dataset.infra, cb.checked);
+  }));
+}
+async function cargarInfra() {
+  await cargarInfraManifest();
+  if (!infraOn) return;   // el usuario lo apagó mientras cargaba el manifest
+  infraAsegurarPane();
+  infraCrearControl();
+  infraRenderPanel();
+  infraBtnEstado('🏗️ Infraestructura', true);
+}
+function toggleInfra() {
+  if (!mapaFull) return;
+  infraOn = !infraOn;
+  if (infraOn) {
+    infraBtnEstado('⏳ Infraestructura', true);
+    cargarInfra();
+  } else {
+    Object.values(infraCapas).forEach(cap => {
+      if (cap.sub && mapaFull.hasLayer(cap.sub)) mapaFull.removeLayer(cap.sub);
+    });
+    if (infraCtrl) { mapaFull.removeControl(infraCtrl); infraCtrl = null; }
+    infraBtnEstado('🏗️ Infraestructura', false);
+  }
+}
+
 // ---- Capa KMZ/KML personal (subir un archivo propio al mapa) ----
 // Soporta: Placemark Point/LineString/Polygon/MultiGeometry (aplanando Folders), estilos
 // básicos (LineStyle/PolyStyle/IconStyle color), GroundOverlay (imagen del zip → blob URL)
@@ -6659,6 +6826,7 @@ document.getElementById('mapa-informes').addEventListener('click', toggleInforme
 document.getElementById('mapa-peligros').addEventListener('click', togglePeligros);
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-ipt').addEventListener('click', toggleIPT);
+document.getElementById('mapa-infra').addEventListener('click', toggleInfra);
 document.getElementById('mapa-kmz').addEventListener('click', onBotonKmz);
 document.getElementById('input-kmz-mapa').addEventListener('change', e => {
   if (e.target.files[0]) cargarKmzArchivo(e.target.files[0]);
