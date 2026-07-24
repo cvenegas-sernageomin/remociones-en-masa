@@ -82,10 +82,19 @@ body.map-mode #nav-buttons { display: none !important; }
 #mapa-view { display: none; flex-direction: column; flex: 1; position: relative; }
 #mapa-view.active { display: flex; }
 #mapa-full { flex: 1; min-height: 300px; z-index: 1; }
-#mapa-fab {
-  display: flex; gap: 4px; flex-wrap: wrap; align-items: center;
-  padding: 6px 7px; background: var(--surface, var(--mid)); border-top: 1px solid var(--border, var(--light));
+#mapa-fab { display: flex; flex-direction: column; }
+/* Tirador para ocultar/mostrar toda la barra de botones de un toque (recupera el 100%
+   del alto del mapa cuando no se necesita tocar ninguno) — ver toggleMapaFab(). */
+#mapa-fab-handle {
+  text-align: center; padding: 3px; cursor: pointer; user-select: none;
+  color: var(--muted); font-size: 0.75rem; line-height: 1;
+  background: var(--surface, var(--mid)); border-top: 1px solid var(--border, var(--light));
 }
+#mapa-fab-botones {
+  display: flex; gap: 4px; flex-wrap: wrap; align-items: center;
+  padding: 6px 7px; background: var(--surface, var(--mid));
+}
+#mapa-fab.colapsado #mapa-fab-botones { display: none; }
 #mapa-fab .map-btn { flex: 0 0 auto; padding: 6px 8px; font-size: 0.72rem; }
 /* GPS y Tiles como icono solo (sin texto): son utilitarios y con el título/aria se entienden.
    Reduce el ancho ~2 botones y baja la barra de 3 filas a 2 (132px→~75px), para que la última
@@ -977,6 +986,8 @@ body.map-mode #nav-buttons { display: none !important; }
 <div id="mapa-view">
   <div id="mapa-full"></div>
   <div id="mapa-fab">
+   <div id="mapa-fab-handle" title="Mostrar/ocultar botones del mapa">▾</div>
+   <div id="mapa-fab-botones">
     <button class="map-btn map-btn-sm" id="mapa-gps" title="Centrar en mi ubicación (GPS)" aria-label="GPS">📡</button>
     <button class="map-btn map-btn-sm" id="mapa-linea" title="Dibujar línea geológica en el mapa" aria-label="Dibujar línea">✏️</button>
     <button class="map-btn map-btn-sm" id="mapa-tiles" title="Descargar tiles del mapa para uso sin conexión" aria-label="Descargar tiles">⬇️</button>
@@ -985,7 +996,10 @@ body.map-mode #nav-buttons { display: none !important; }
       <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): riesgo por precipitación, Atacama/Coquimbo/Valparaíso">⚠️ P. Críticos</button>
       <small class="map-btn-src">SENAPRED</small>
     </span>
-    <button class="map-btn" id="mapa-temporal" title="Emergencias activas por el temporal de jul-2026 (MOP): Atacama, Coquimbo y Valparaíso">🌊 Emergencia (MOP)</button>
+    <span class="map-btn-stack">
+      <button class="map-btn" id="mapa-temporal" title="Emergencias activas por el temporal de jul-2026 (MOP): Atacama, Coquimbo y Valparaíso">🌊 Emergencia</button>
+      <small class="map-btn-src">MOP</small>
+    </span>
     <span class="map-btn-stack">
       <button class="map-btn" id="mapa-emergencias" title="Visor de Emergencias 2026 (Oficina de Gestión de Emergencias SERNAGEOMIN): eventos geológicos y mineros reportados en el año, en vivo">🚨 Emergencias</button>
       <small class="map-btn-src">SERNAGEOMIN</small>
@@ -1011,6 +1025,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
     <span class="pts-count" id="mapa-count">0 RM</span>
     <input type="file" id="input-kmz-mapa" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml" style="display:none">
+   </div>
   </div>
 </div>
 
@@ -5345,7 +5360,7 @@ async function cargarTemporal() {
   if (tempCargando) return;
   if (tempData) { renderTemporal(); return; }
   tempCargando = true;
-  tempBtnEstado('⏳ Emergencia (MOP)', true);
+  tempBtnEstado('⏳ Emergencia', true);
   toastMapa('Cargando emergencias del temporal…', 0);
   try {
     const resp = await fetch(TEMP_URL, { cache: 'force-cache' });
@@ -5360,7 +5375,7 @@ async function cargarTemporal() {
     if (tempLayer) mapaFull.removeLayer(tempLayer);
   } finally {
     tempCargando = false;
-    tempBtnEstado('🌊 Emergencia (MOP)', tempOn);
+    tempBtnEstado('🌊 Emergencia', tempOn);
   }
 }
 function toggleTemporal() {
@@ -5368,14 +5383,14 @@ function toggleTemporal() {
   tempOn = !tempOn;
   if (tempOn) {
     tempLayer.addTo(mapaFull);
-    tempBtnEstado('⏳ Emergencia (MOP)', true);
+    tempBtnEstado('⏳ Emergencia', true);
     mapaFull.on('moveend', tempOnMoveEnd);
     cargarTemporal();
   } else {
     mapaFull.off('moveend', tempOnMoveEnd);
     clearTimeout(tempMoveTimer);
     mapaFull.removeLayer(tempLayer);
-    tempBtnEstado('🌊 Emergencia (MOP)', false);
+    tempBtnEstado('🌊 Emergencia', false);
   }
 }
 
@@ -6838,6 +6853,14 @@ document.getElementById('mapa-peligros').addEventListener('click', togglePeligro
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-ipt').addEventListener('click', toggleIPT);
 document.getElementById('mapa-infra').addEventListener('click', toggleInfra);
+document.getElementById('mapa-fab-handle').addEventListener('click', () => {
+  const fab = document.getElementById('mapa-fab');
+  fab.classList.toggle('colapsado');
+  document.getElementById('mapa-fab-handle').textContent = fab.classList.contains('colapsado') ? '▲' : '▾';
+  // Leaflet no vuelve a medir su contenedor solo tras un cambio de alto por CSS
+  // (mismo patrón ya usado al abrir el Tab de Mapa, ver initMapaFull/renderMapaFull).
+  setTimeout(() => mapaFull && mapaFull.invalidateSize(), 50);
+});
 document.getElementById('mapa-kmz').addEventListener('click', onBotonKmz);
 document.getElementById('input-kmz-mapa').addEventListener('change', e => {
   if (e.target.files[0]) cargarKmzArchivo(e.target.files[0]);
