@@ -914,6 +914,27 @@ body.map-mode #nav-buttons { display: none !important; }
   <p style="font-size:0.75rem;color:var(--muted);text-align:center;margin-top:6px">Guarda la RM en el dispositivo, genera el informe Word, el KMZ y el respaldo JSON, y te ofrece compartirlos por correo (un solo envío) o descargarlos. Luego limpia el formulario para la siguiente.</p>
 </div>
 
+<!-- Modal de revisión (antes de generar): alertas automáticas + confirmación del profesional.
+     Colores sólidos explícitos (fondo claro fijo): NO usar var(--fg)/var(--border), que no
+     existen en :root y dejarían el texto invisible sobre blanco (bug recurrente v50/v57). -->
+<div id="revision-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2650;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#ffffff;color:#111;max-width:460px;width:100%;max-height:88vh;display:flex;flex-direction:column;border-radius:14px;border:1px solid #d1d5db;box-shadow:0 12px 40px rgba(0,0,0,0.35)">
+    <div style="padding:18px 20px 8px">
+      <h3 style="margin:0;font-size:1.15rem;font-weight:700;color:#111">🔎 Revisión antes de generar</h3>
+    </div>
+    <div id="revision-lista" style="overflow-y:auto;padding:0 20px;flex:1"></div>
+    <div style="padding:12px 20px 18px;border-top:1px solid #e5e7eb">
+      <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:0.9rem;color:#111;font-weight:600;margin-bottom:6px">
+        <input type="checkbox" id="revision-confirmar" style="margin-top:2px;width:20px;height:20px;flex:0 0 auto">
+        <span>He revisado los datos y <b>confirmo</b> esta ficha en terreno.</span>
+      </label>
+      <p style="font-size:0.76rem;color:#6b7280;margin:0 0 14px 30px">Si no la confirmas, el informe se emite marcado como <b>PRELIMINAR – generado automáticamente</b>, pendiente de tu validación.</p>
+      <button type="button" id="revision-generar" style="width:100%;padding:14px;margin-bottom:10px;background:#16a34a;border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">Generar informe</button>
+      <button type="button" id="revision-cancelar" style="width:100%;padding:11px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:10px;color:#111;font-size:0.95rem;font-weight:600;cursor:pointer">Volver a la ficha</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de entrega de archivos (tras Finalizar RM): compartir los 3 juntos o descargar -->
 <div id="entrega-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2600;align-items:center;justify-content:center;padding:16px">
   <div style="background:#ffffff;color:#111;max-width:420px;width:100%;border-radius:14px;padding:20px;border:1px solid #d1d5db;box-shadow:0 12px 40px rgba(0,0,0,0.35)">
@@ -1045,7 +1066,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v77';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v78';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2486,8 +2507,12 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 
   // Ancho fijo de 720 px: Google Earth Pro dimensiona el globo según el ancho declarado
   // del contenido, y con max-width:500 el globo salía muy angosto para leer en el PC.
+  // Rótulo preliminar en el globo (punto 10), coherente con el banner del RETERM.
+  const prelimHTML = data.confirmada ? '' :
+    `<div style="background:#fdecea;border:1px solid #f5c2c0;color:#b71c1c;font-weight:bold;padding:7px 10px;border-radius:6px;margin-bottom:8px">PRELIMINAR — generado automáticamente, pendiente de revisión</div>`;
   const description = `<![CDATA[
 <div style="width:720px;font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.45">
+${prelimHTML}
 <h2 style="color:#e63946;border-bottom:2px solid #e63946;padding-bottom:6px">${tipo}</h2>
 <h3 style="color:#555">📍 Ubicación y clasificación</h3>
 <table style="border-collapse:collapse;width:100%">
@@ -3348,6 +3373,9 @@ function collectFormData() {
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
     'fecha-ingreso-iso': document.getElementById('fecha-ingreso-iso')?.value,
     referencias: Array.from(refsSel),
+    // La marca el geólogo en la pantalla de revisión; mientras sea false, el informe sale
+    // rotulado como PRELIMINAR – generado automáticamente (ver generateRETERM/buildKML).
+    confirmada: fichaConfirmada,
     region: ultimaComunaRegion ? ultimaComunaRegion.region : regionFromCoords(getCoords()),
     comuna: ultimaComunaRegion ? ultimaComunaRegion.comuna : '',
     provincia: ultimaComunaRegion ? ultimaComunaRegion.provincia : '',
@@ -3893,9 +3921,21 @@ async function generateRETERM(record, ret) {
     const sectPr = '<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/>'
       + '<w:pgMar w:top="2160" w:right="720" w:bottom="720" w:left="720" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="708"/></w:sectPr>';
 
+    // Rótulo PRELIMINAR (punto 10): mientras el geólogo no confirme la ficha en la pantalla
+    // de revisión, el informe se emite marcado como preliminar/automático. Banner rojo bajo
+    // el título + una línea de cierre; al confirmar, se reemplaza por "Revisado y validado por".
+    const bannerPrelim = data.confirmada ? '' :
+      wP(wR('INFORME PRELIMINAR — GENERADO AUTOMÁTICAMENTE, PENDIENTE DE REVISIÓN Y VALIDACIÓN PROFESIONAL',
+        { b: true, color: 'C00000', sz: 20 }), { align: 'center', after: 120 });
+    const cierrePrelim = data.confirmada
+      ? wP(wR('Revisado y validado en terreno por ' + (data.autor || iniciales) + '.', { i: true, sz: 18 }), { align: 'right', after: 40 })
+      : wP(wR('Documento preliminar sujeto a revisión; los datos fueron capturados en terreno y el texto se generó automáticamente.',
+          { i: true, color: 'C00000', sz: 18 }), { align: 'both', after: 40 });
     const docBody = wP(wR('SERVICIO NACIONAL DE GEOLOGÍA Y MINERÍA - SERNAGEOMIN'), { align: 'center' })
       + wP(wR(tituloReporte, { b: true, u: true }), { align: 'center', after: 120 })
+      + bannerPrelim
       + tabla
+      + cierrePrelim
       + wP(wR('Elaborado el ' + today + '/' + iniciales + '_UATEG', { b: true }), { align: 'right' });
 
     const documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="' + A_NS + '" xmlns:pic="' + PIC_NS + '"><w:body>' + docBody + sectPr + '</w:body></w:document>';
@@ -4157,6 +4197,75 @@ async function buildRMRecord() {
 // se pierde tras el trabajo async de generar (captura satelital, logo, fotos). Compartir los 3
 // juntos en UNA sola hoja = un correo con los 3 adjuntos, y funciona en PWA instalada en iOS.
 let _archivosRM = [];
+// Confirmación del profesional (pantalla de revisión). Mientras sea false, los entregables
+// salen rotulados como preliminares. Se resetea al empezar una RM nueva y se restaura al
+// reabrir una guardada (populateForm), para no "desconfirmar" una ficha ya validada.
+let fichaConfirmada = false;
+
+// Chequeos automáticos previos a emitir (punto 9). Devuelve alertas {n:'warn'|'info', m}.
+// warn = posible error a revisar · info = dato ausente no crítico. NO bloquea (las validaciones
+// que sí bloquean —ubicación y "Otro" sin especificar— siguen en saveCurrentRM).
+function revisarFicha(data) {
+  const w = [];
+  const c = data.coords;
+  if (c) {
+    const lat = c.lat, lon = c.lng ?? c.lon;
+    if (lat > -17 || lat < -56.5 || lon > -66 || lon < -110)
+      w.push({ n: 'warn', m: `Coordenadas fuera de Chile (${lat.toFixed(4)}, ${lon.toFixed(4)}). Verifica la ubicación en el mapa.` });
+    else if (Math.abs(lat + 33.45) < 0.02 && Math.abs(lon + 70.65) < 0.02)
+      w.push({ n: 'warn', m: 'El marcador está casi en la posición inicial por defecto (centro de Santiago). ¿Marcaste la ubicación real de la remoción?' });
+  }
+  if (!data.comuna) w.push({ n: 'warn', m: 'No se detectó comuna bajo el punto (cae fuera de los polígonos comunales). Verifica la región manualmente.' });
+  else if (!data.region) w.push({ n: 'warn', m: 'La ficha no tiene región asignada.' });
+
+  const recom = ((data['recomendaciones-check'] || []).join(' ') + ' ' + (data['recomendaciones-libre'] || '')).trim();
+  if (data.amenaza === 'no' && /evacu|reubicaci/i.test(recom))
+    w.push({ n: 'warn', m: 'La amenaza está marcada como "No", pero hay una recomendación de evacuación/reubicación. Revisa la coherencia.' });
+  if (data.amenaza === 'si' && !recom)
+    w.push({ n: 'info', m: 'Amenaza activa sin ninguna recomendación. Considera agregar al menos una.' });
+  if (data['personas-afectadas'] && data['personas-afectadas'] !== 'Sin afectados' && !data['num-personas'])
+    w.push({ n: 'info', m: `Marcaste "${data['personas-afectadas']}" pero sin el número de personas.` });
+  if (/lluvia/i.test(data.desencadenante || '') && !(data['lluvia-24h'] || data['lluvia-48h'] || data['lluvia-7d']))
+    w.push({ n: 'info', m: 'Desencadenante por lluvia sin precipitación registrada (puedes estimarla por GPS en el Paso 2).' });
+
+  const fi = data['fecha-inicio'], ff = data['fecha-fin'];
+  if (fi && ff && ff < fi) w.push({ n: 'warn', m: 'La fecha de término del evento es anterior a la de inicio.' });
+  if (fi && fi > new Date().toLocaleDateString('en-CA')) w.push({ n: 'warn', m: 'La fecha del evento está en el futuro.' });
+
+  if (!data['tipo-movimiento']) w.push({ n: 'warn', m: 'Falta el tipo de remoción (Paso 1).' });
+  if (!data.desencadenante) w.push({ n: 'info', m: 'Falta el desencadenante (Paso 2).' });
+  if (!data.amenaza) w.push({ n: 'info', m: 'No indicaste si hay amenaza activa (Paso 5).' });
+  if (!(data.localidad || '').trim()) w.push({ n: 'info', m: 'Falta la localidad / sector (Paso 1).' });
+  if (!(data.autor || '').trim()) w.push({ n: 'info', m: 'Falta el autor del registro (Paso 6).' });
+  if (!fotosData.some(f => f.blob)) w.push({ n: 'info', m: 'La ficha no tiene fotografías.' });
+  return w;
+}
+
+function abrirRevisionModal() {
+  const data = collectFormData();
+  const cont = document.getElementById('revision-lista');
+  const alertas = revisarFicha(data);
+  cont.innerHTML = '';
+  if (!alertas.length) {
+    cont.innerHTML = '<p style="color:#166534;font-weight:600;font-size:0.92rem;padding:10px 0">✅ No se detectaron inconsistencias. Revisa igualmente antes de confirmar.</p>';
+  } else {
+    const intro = document.createElement('p');
+    intro.style.cssText = 'font-size:0.85rem;color:#6b7280;margin:6px 0 10px';
+    intro.textContent = 'Revisa estos puntos antes de emitir (no impiden generar, pero conviene verificarlos):';
+    cont.appendChild(intro);
+    alertas.forEach(a => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:9px;align-items:flex-start;padding:8px 10px;margin-bottom:6px;border-radius:8px;font-size:0.86rem;line-height:1.4;'
+        + (a.n === 'warn' ? 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca' : 'background:#f3f4f6;color:#374151;border:1px solid #e5e7eb');
+      const ico = document.createElement('span'); ico.textContent = a.n === 'warn' ? '⚠️' : 'ℹ️'; ico.style.flex = '0 0 auto';
+      const txt = document.createElement('span'); txt.textContent = a.m;
+      row.appendChild(ico); row.appendChild(txt); cont.appendChild(row);
+    });
+  }
+  document.getElementById('revision-confirmar').checked = fichaConfirmada;
+  document.getElementById('revision-modal').style.display = 'flex';
+}
+
 async function saveCurrentRM() {
   // getCoords() NUNCA es null (el marcador parte en el centro de Santiago por defecto):
   // hay que validar markerPlaced o la RM se guardaría silenciosamente en -33.45,-70.65.
@@ -4167,6 +4276,12 @@ async function saveCurrentRM() {
     alert('Especifica a qué corresponde "Otro" en: ' + faltanOtros.join(', ') + '.');
     return;
   }
+  abrirRevisionModal();   // pantalla de revisión (punto 9); la generación real ocurre al confirmar
+}
+
+// Generación + entrega, disparada por el botón "Generar informe" del modal de revisión.
+async function generarYEntregarRM() {
+  if (!markerPlaced || !getCoords()) return;   // reguarda defensivo
   try {
     const rec = await buildRMRecord();
     // Upsert por ID: si ya existe una RM con este id (reintento tras un error de generación,
@@ -4271,6 +4386,7 @@ function resetFormForNewRM() {
   refsSel.clear();                                                    // cada RM elige sus propias referencias
   { const rb = document.getElementById('refs-buscar'); if (rb) rb.value = ''; }
   renderRefs();
+  fichaConfirmada = false;                                            // la RM nueva parte sin confirmar (informe preliminar)
   document.getElementById('estructuras-dip-list').innerHTML = '';
   document.getElementById('grietas-list').innerHTML = '';
   updateMorfoFields('');
@@ -4342,6 +4458,7 @@ function populateForm(rec) {
   { const io = document.getElementById('infra-otro-spec'); if (io && d['infra-otro']) io.value = d['infra-otro']; }
   refsSel = new Set(d.referencias || []);
   renderRefs();
+  fichaConfirmada = !!d.confirmada;   // no "desconfirmar" una ficha ya validada al reabrirla
   const list = document.getElementById('estructuras-dip-list');
   list.innerHTML = '';
   (d['estructuras-dip'] || []).forEach(e => {
@@ -4479,8 +4596,12 @@ async function renderRMsList() {
     const s = r.summary || {};
     const titulo = s.localidad || r.id || 'RM sin nombre';
     const sub = [s.tipo, s.fecha].filter(Boolean).map(escapeHtmlJS).join(' · ') || '—';
+    // marca las que aún no valida el geólogo (informe preliminar); las confirmadas van con ✓
+    const estado = (r.data && r.data.confirmada)
+      ? '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #bbf7d0;border-radius:5px;padding:1px 6px;margin-left:6px">✓ Confirmada</span>'
+      : '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#b71c1c;background:#fdecea;border:1px solid #f5c2c0;border-radius:5px;padding:1px 6px;margin-left:6px">Preliminar</span>';
     return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px">
-      <div style="font-weight:600;word-break:break-word;color:#111">${escapeHtmlJS(titulo)}</div>
+      <div style="font-weight:600;word-break:break-word;color:#111">${escapeHtmlJS(titulo)}${estado}</div>
       <div style="font-size:0.82rem;color:#4b5563;margin:2px 0">${sub}</div>
       <div style="font-size:0.7rem;color:#6b7280">${escapeHtmlJS(r.id)} · guardada ${new Date(r.savedAt).toLocaleDateString('es-CL')}</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
@@ -6340,6 +6461,13 @@ document.getElementById('btn-guardar-rm').addEventListener('click', saveCurrentR
 document.getElementById('entrega-compartir').addEventListener('click', entregaCompartir);
 document.getElementById('entrega-descargar').addEventListener('click', entregaDescargar);
 document.getElementById('entrega-cerrar').addEventListener('click', () => { document.getElementById('entrega-modal').style.display = 'none'; });
+// Modal de revisión (punto 9/10): confirmar decide si el informe sale preliminar; generar procede.
+document.getElementById('revision-generar').addEventListener('click', () => {
+  fichaConfirmada = document.getElementById('revision-confirmar').checked;
+  document.getElementById('revision-modal').style.display = 'none';
+  generarYEntregarRM();
+});
+document.getElementById('revision-cancelar').addEventListener('click', () => { document.getElementById('revision-modal').style.display = 'none'; });
 document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
 document.getElementById('btn-guardar-jornada').addEventListener('click', jornadaGuardar);
 

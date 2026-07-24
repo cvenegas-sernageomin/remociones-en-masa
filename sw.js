@@ -1,4 +1,4 @@
-const CACHE_NAME = 'remociones-v77';
+const CACHE_NAME = 'remociones-v78';
 const ASSETS = [
   './',
   './index.html',
