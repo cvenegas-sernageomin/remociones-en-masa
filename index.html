@@ -414,6 +414,7 @@ body.map-mode #nav-buttons { display: none !important; }
 
   <div id="map"></div>
   <div id="coords-display">Sin ubicación GPS aún...</div>
+  <div id="region-comuna-display" style="font-size:0.85em;color:#8a94a3;margin:2px 0 6px"></div>
   <div class="map-actions">
     <button class="map-btn" id="btn-gps">📡 Centrar GPS</button>
     <button class="map-btn" id="btn-download-tiles" style="display:none">⬇️ Descargar área offline</button>
@@ -1024,7 +1025,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v70';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v71';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1727,6 +1728,32 @@ function updateCoordsDisplay() {
   const ll = markerInstance.getLatLng();
   document.getElementById('coords-display').textContent =
     `📍 Lat: ${ll.lat.toFixed(6)}  Lon: ${ll.lng.toFixed(6)}`;
+  actualizarRegionComunaDisplay();
+}
+// Región/comuna reales del punto actual (ver comunaRegionDesdeCoords más arriba). Se
+// recalcula cada vez que el marcador se mueve (GPS o arrastre) y collectFormData() lee
+// este valor cacheado en vez de recalcular — mismo patrón que lluvia-fuente/lluvia-estacion.
+let ultimaComunaRegion = null;
+function actualizarRegionComunaDisplay() {
+  const el = document.getElementById('region-comuna-display');
+  const c = getCoords();
+  const r = comunaRegionDesdeCoords(c);
+  if (r) {
+    ultimaComunaRegion = r;
+    if (el) { el.textContent = `🏛️ ${r.comuna || '—'} · ${r.region}`; el.style.color = ''; }
+    return;
+  }
+  if (comunasPoligonos) {
+    // dataset cargado pero el punto cae fuera de toda comuna conocida (mar, límite, error)
+    ultimaComunaRegion = null;
+    if (el) { el.textContent = '⚠️ Sin comuna detectada en este punto — verificar región manualmente'; el.style.color = '#c0392b'; }
+    return;
+  }
+  // sin el dataset oficial aún (sin conexión la 1ª vez): respaldo por franja de latitud,
+  // marcado explícitamente como aproximado para no hacerlo pasar por un dato confirmado.
+  ultimaComunaRegion = { comuna: '', provincia: '', region: regionFromCoords(c) };
+  if (el) { el.textContent = `⏳ ${ultimaComunaRegion.region} (aproximado — verificar con conexión)`; el.style.color = '#b7791f'; }
+  cargarComunasPoligonos().then(() => actualizarRegionComunaDisplay());
 }
 
 function getCoords() {
@@ -2122,6 +2149,7 @@ function buildKML(data, fotoEntries, satelitalFilename, geotiffFilename) {
 <table style="border-collapse:collapse;width:100%">
   ${row('ID RM', data.id)}
   ${row('Región', data.region)}
+  ${row('Comuna', data.comuna)}
   ${row('Localidad', data.localidad)}
   ${row('N° Antecedente', data['n-antecedente'])}
   ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
@@ -2455,8 +2483,67 @@ async function shareOrDownload(blob, filename, mime) {
   return 'download';
 }
 
-// Región de Chile aproximada a partir de las coordenadas (la ubicación define la región,
-// ya no se selecciona a mano). Franja central: interior = Metropolitana, costa = Valparaíso/O'Higgins.
+// --- Región/comuna reales por intersección con polígonos oficiales (SUBDERE) ---
+// La franja de latitud de más abajo (regionFromCoords) es solo una aproximación gruesa:
+// asignaba mal, p.ej., Machalí (comuna de O'Higgins) como "Metropolitana" por caer justo
+// en el borde de la franja central (lat -34.18, lon -70.65 > -71.0). Se reemplaza por un
+// ray casting real sobre las 346 comunas SUBDERE (mismo dataset y funciones que ya usa la
+// capa IPT: ipt/division_comunal.json, iptBBox/iptEnPoligono) — regionFromCoords queda solo
+// como respaldo visible (marcado "aprox.") para el rarísimo caso de RM cargada sin conexión
+// y sin caché previo del archivo.
+let comunasPoligonos = null, comunasCargando = false;
+async function cargarComunasPoligonos() {
+  if (comunasPoligonos || comunasCargando) return;
+  comunasCargando = true;
+  try {
+    // nombre real generado por escribir_por_grupo() en tools/generar_ipt.py: <id>_<grupo>.json
+    // (id 'division_comunal', grupo fijo 'DC' — ver DIVISION_COMUNAL en ese script).
+    const resp = await fetch('ipt/division_comunal_DC.json', { cache: 'force-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    data.features.forEach(f => { f._bbox = iptBBox(f.geometry); });
+    comunasPoligonos = data.features;
+  } catch (err) {
+    console.warn('división comunal:', err);
+  } finally {
+    comunasCargando = false;
+  }
+}
+// NO se precarga al abrir la app: el archivo pesa ~2,5 MB gzip y en terreno con datos
+// móviles sería un costo sorpresa para quien solo abre la app a mirar el mapa. Se baja la
+// 1ª vez que se marca un punto (actualizarRegionComunaDisplay lo pide) y de ahí queda
+// cacheado por el SW para offline. Mientras no esté, se muestra el respaldo "(aproximado)".
+
+// Nombre oficial SUBDERE (p.ej. "Región del Libertador General Bernardo O'Higgins") →
+// mismo formato corto "Nombre (numeral)" que usa el resto de la app (título RETERM incl.).
+const REGION_KEYWORDS = [
+  ['arica', 'Arica y Parinacota (XV)'], ['tarapaca', 'Tarapacá (I)'], ['antofagasta', 'Antofagasta (II)'],
+  ['atacama', 'Atacama (III)'], ['coquimbo', 'Coquimbo (IV)'], ['valparaiso', 'Valparaíso (V)'],
+  ['metropolitana', 'Metropolitana (RM)'], ['higgins', "O'Higgins (VI)"], ['maule', 'Maule (VII)'],
+  ['nuble', 'Ñuble (XVI)'], ['biobio', 'Biobío (VIII)'], ['araucania', 'La Araucanía (IX)'],
+  ['rios', 'Los Ríos (XIV)'], ['lagos', 'Los Lagos (X)'], ['aysen', 'Aysén (XI)'], ['magallanes', 'Magallanes (XII)'],
+];
+function regionCortaDesdeNombreOficial(nomReg) {
+  const n = (nomReg || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const hit = REGION_KEYWORDS.find(([kw]) => n.includes(kw));
+  return hit ? hit[1] : (nomReg || '');
+}
+// Comuna real bajo el punto (mismo ray casting con prefiltro bbox que usa la capa IPT).
+function comunaRegionDesdeCoords(c) {
+  if (!c || !comunasPoligonos) return null;
+  const lat = c.lat, lon = c.lng ?? c.lon;
+  if (lat == null || lon == null) return null;
+  const latlng = { lat, lng: lon };
+  const f = comunasPoligonos.find(ft => {
+    const b = ft._bbox;
+    return b && lon >= b[0] && lat >= b[1] && lon <= b[2] && lat <= b[3] && iptEnPoligono(latlng, ft.geometry);
+  });
+  if (!f) return null;
+  return { comuna: f.properties.com || '', provincia: f.properties.loc || '', region: regionCortaDesdeNombreOficial(f.properties.reg) };
+}
+// Región de Chile aproximada a partir de las coordenadas — SOLO respaldo si aún no hay
+// el dataset oficial cargado (ver comunaRegionDesdeCoords más arriba, que es lo que se usa
+// normalmente). Franja central: interior = Metropolitana, costa = Valparaíso/O'Higgins.
 function regionFromCoords(c) {
   if (!c) return '';
   const lat = c.lat, lon = c.lng ?? c.lon;
@@ -2914,7 +3001,9 @@ function collectFormData() {
     autor: document.getElementById('autor')?.value,
     'prof-iniciales': document.getElementById('prof-iniciales')?.value,
     'hora-ingreso': document.getElementById('hora-ingreso')?.value,
-    region: regionFromCoords(getCoords()),
+    region: ultimaComunaRegion ? ultimaComunaRegion.region : regionFromCoords(getCoords()),
+    comuna: ultimaComunaRegion ? ultimaComunaRegion.comuna : '',
+    provincia: ultimaComunaRegion ? ultimaComunaRegion.provincia : '',
     localidad: document.getElementById('localidad')?.value,
     'n-antecedente': document.getElementById('n-antecedente')?.value,
     'n-reterm': document.getElementById('n-reterm')?.value,
@@ -3133,7 +3222,7 @@ async function generateRETERM(record, ret) {
 
     // Observaciones auto
     const obsPartes = [];
-    obsPartes.push(`En el sector de ${esc(localidad)}${data.region ? ', Región de ' + esc(data.region.replace(/\s*\(.*\)/, '')) : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
+    obsPartes.push(`En el sector de ${esc(localidad)}${data.comuna ? ', comuna de ' + esc(data.comuna) : ''}${data.region ? ', Región de ' + esc(data.region.replace(/\s*\(.*\)/, '')) : ''}, se registró una remoción en masa de tipo <b>${esc(tipo)}</b> el <b>${esc(fechaStr)}</b>.`);
     if (data.desencadenante) obsPartes.push(`El evento fue desencadenado por ${esc(data.desencadenante.toLowerCase())}.`);
     if (data['lluvia-24h'] || data['lluvia-48h'] || data['lluvia-7d']) {
       const partes = [];
@@ -3174,7 +3263,8 @@ async function generateRETERM(record, ret) {
 
     // Conclusión auto — síntesis razonada a partir de todo lo compilado. Cada oración se agrega
     // SOLO si el dato fue registrado (no inventa). Encadena: mecanismo/material → magnitud →
-    // condicionantes y desencadenante → estado y nivel de peligro con elementos expuestos → proyección.
+    // condicionantes y desencadenante → estado y condición observada con elementos expuestos → proyección.
+    // NO clasifica un nivel de peligro (alto/moderado/bajo): eso lo califica el geólogo (ver punto 4).
     const infra = data.infraestructura?.length ? data.infraestructura.join(', ') : null;
     const personas = data['personas-afectadas'];
     const nPers = data['num-personas'];
@@ -3187,7 +3277,7 @@ async function generateRETERM(record, ret) {
 
     // 1) Mecanismo, ubicación y material
     {
-      const lugar = [localidad && localidad !== '___' ? esc(localidad) : null, data.region ? 'Región de ' + esc(region.replace(/\s*\(.*\)/, '')) : null].filter(Boolean).join(', ');
+      const lugar = [localidad && localidad !== '___' ? esc(localidad) : null, data.comuna ? 'comuna de ' + esc(data.comuna) : null, data.region ? 'Región de ' + esc(region.replace(/\s*\(.*\)/, '')) : null].filter(Boolean).join(', ');
       let f = `El evento corresponde a una remoción en masa de tipo ${esc(tipo)}${lugar ? ', registrada en ' + lugar : ''}`;
       if (data['tipo-ladera']) f += `, desarrollada sobre una ladera ${esc(data['tipo-ladera'].toLowerCase())}`;
       if (data['geometria-ladera']?.length) f += ` de geometría ${esc(data['geometria-ladera'].join('/').toLowerCase())}`;
@@ -3232,14 +3322,22 @@ async function generateRETERM(record, ret) {
       if ((data['grietas-traccion'] || []).length) concluParts.push('La presencia de grietas de tracción en la corona evidencia un proceso de inestabilidad activo o incipiente.');
     }
 
-    // 4) Estado, nivel de peligro y elementos expuestos
+    // 4) Estado y elementos expuestos — se describe la condición observada, SIN clasificar
+    // un nivel de peligro (alto/moderado/bajo): esa calificación técnica la hace el geólogo
+    // al revisar la ficha, no la asigna automáticamente el formulario a partir de dos
+    // variables (amenaza activa + exposición). Ver feedback GOT: reemplazar la inferencia
+    // "peligro alto" por una descripción neutra de la condición observada.
     {
       const expuesto = (personas && personas !== 'Sin afectados') || infra || (distViv && parseFloat(distViv) <= 100);
-      const peligro = data.amenaza === 'si' ? (expuesto ? 'un peligro alto' : 'un peligro moderado a alto')
-        : data.amenaza === 'incierta' ? 'un nivel de peligro por precisar'
-          : data.amenaza === 'no' ? 'un peligro bajo' : null;
       let f = `Al momento de la inspección el proceso se encuentra ${estadoTxt}`;
-      if (peligro) f += `, configurando ${peligro} para el sector`;
+      if (data.amenaza === 'si') {
+        f += expuesto ? ', en una condición de amenaza activa con elementos expuestos en el sector'
+                      : ', en una condición de amenaza activa, sin elementos expuestos identificados en el sector';
+      } else if (data.amenaza === 'incierta') {
+        f += ', con una condición de amenaza aún por precisar';
+      } else if (data.amenaza === 'no') {
+        f += ', sin evidencia de actividad ni de amenaza activa al momento de la inspección';
+      }
       concluParts.push(f + '.');
 
       const exp = [];
@@ -3322,10 +3420,12 @@ async function generateRETERM(record, ret) {
         + wP(wR('Figura A. Ubicación de la remoción en masa (imagen satelital con grilla UTM).', { i: true, sz: 17 }), { align: 'center' })
       : wP(wR('Figura A: sin imagen satelital (sin conexión al capturar).', { i: true, color: '999999', sz: 18 }), { align: 'center' });
 
+    const ubicacionTxt = [localidad !== '___' ? localidad : null, data.comuna ? 'Comuna de ' + data.comuna : null,
+      data.region ? 'Región de ' + region.replace(/\s*\(.*\)/, '') : null].filter(Boolean).join(' — ') || '___';
     const idFields = [
       ['IDENTIFICACIÓN', localidad !== '___' ? localidad : 'Remoción en masa'],
       ['TIPO PRINCIPAL', tipo],
-      ['UBICACIÓN', localidad],
+      ['UBICACIÓN', ubicacionTxt],
       ['COORDENADAS (UTM WGS84)', coordStr],
       ['DÍA EVENTO', fechaStr],
       ['DESENCADENANTE', data.desencadenante || 'No registrado'],
@@ -3760,6 +3860,8 @@ function resetFormForNewRM() {
   document.getElementById('btn-add-foto').style.display = '';
   markerPlaced = false;
   document.getElementById('coords-display').textContent = 'Sin ubicación GPS aún...';
+  ultimaComunaRegion = null;
+  { const rc = document.getElementById('region-comuna-display'); if (rc) rc.textContent = ''; }
   { const lf = document.getElementById('lluvia-fuente'); if (lf) lf.textContent = 'Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.'; }
   { const le = document.getElementById('lluvia-estacion'); if (le) le.textContent = ''; }
   toggleLluviaAcum();
@@ -3777,6 +3879,7 @@ function populateForm(rec) {
     mapInstance.setView([d.coords.lat, lng], mapInstance.getZoom());
     const cd = document.getElementById('coords-display');
     if (cd) cd.textContent = `${d.coords.lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    actualizarRegionComunaDisplay();   // recalcula con la comuna/región real (arregla RM viejas con la franja de latitud)
   }
   setEl('tipo-movimiento', d['tipo-movimiento']);
   updateMorfoFields(d['tipo-movimiento']);
@@ -4007,7 +4110,7 @@ async function generateCombinedKMZ() {
       const desc = `<![CDATA[<div style="width:720px;font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.45">
 <h3 style="color:#e63946">${esc(d.id || ('RM ' + (i + 1)))}</h3>
 <p><b>Tipo:</b> ${esc(d['tipo-movimiento'] || '—')}</p>
-<p><b>Localidad:</b> ${esc(d.localidad || '—')} &nbsp; <b>Región:</b> ${esc(d.region || '—')}</p>
+<p><b>Localidad:</b> ${esc(d.localidad || '—')} &nbsp; <b>Comuna:</b> ${esc(d.comuna || '—')} &nbsp; <b>Región:</b> ${esc(d.region || '—')}</p>
 <p><b>Fecha:</b> ${esc(d['fecha-inicio'] || '—')} &nbsp; <b>Desencadenante:</b> ${esc(d.desencadenante || '—')}</p>
 <p><b>Estado:</b> ${esc(estado)}</p>
 <p><b>Coordenadas:</b> ${c.lat.toFixed(6)}, ${lng.toFixed(6)}</p>
