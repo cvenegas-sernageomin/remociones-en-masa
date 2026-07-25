@@ -86,8 +86,8 @@ body.map-mode #nav-buttons { display: none !important; }
 /* Tirador para ocultar/mostrar toda la barra de botones de un toque (recupera el 100%
    del alto del mapa cuando no se necesita tocar ninguno) — ver toggleMapaFab(). */
 #mapa-fab-handle {
-  text-align: center; padding: 3px; cursor: pointer; user-select: none;
-  color: var(--muted); font-size: 0.75rem; line-height: 1;
+  text-align: center; padding: 9px 3px; cursor: pointer; user-select: none;
+  color: var(--muted); font-size: 1.35rem; line-height: 1;
   background: var(--surface, var(--mid)); border-top: 1px solid var(--border, var(--light));
 }
 #mapa-fab-botones {
@@ -1089,7 +1089,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v83';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v84';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4488,6 +4488,7 @@ function resetFormForNewRM() {
   markerPlaced = false;
   document.getElementById('coords-display').textContent = 'Sin ubicación GPS aún...';
   ultimaComunaRegion = null;
+  ultimaZonaMorfo = null;   // simétrico con ultimaComunaRegion: no arrastrar la zona morfoclimática de la RM anterior
   { const rc = document.getElementById('region-comuna-display'); if (rc) rc.textContent = ''; }
   { const lf = document.getElementById('lluvia-fuente'); if (lf) lf.textContent = 'Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.'; }
   { const le = document.getElementById('lluvia-estacion'); if (le) le.textContent = ''; }
@@ -5907,6 +5908,14 @@ async function cargarInfra() {
   infraAsegurarPane();
   infraCrearControl();
   infraRenderPanel();
+  // Re-agregar al mapa las capas que quedaron encendidas (cap.on) tras un apagado/encendido
+  // del botón maestro: toggleInfra las quita del mapa pero NO resetea cap.on, así que sin
+  // esto el checkbox saldría marcado pero la capa no se dibujaría (mismo patrón que cargarIPT).
+  Object.values(infraCapas).forEach(cap => {
+    if (!cap.on) return;
+    if (cap.sub) { if (!mapaFull.hasLayer(cap.sub)) cap.sub.addTo(mapaFull); }
+    else cargarInfraCapa(cap.def.id);
+  });
   infraBtnEstado('🏗️ Infraestructura', true);
 }
 function toggleInfra() {
