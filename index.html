@@ -986,7 +986,7 @@ body.map-mode #nav-buttons { display: none !important; }
 <div id="mapa-view">
   <div id="mapa-full"></div>
   <div id="mapa-fab">
-   <div id="mapa-fab-handle" title="Mostrar/ocultar botones del mapa">▾</div>
+   <div id="mapa-fab-handle" title="Mostrar/ocultar botones del mapa">▼</div>
    <div id="mapa-fab-botones">
     <button class="map-btn map-btn-sm" id="mapa-gps" title="Centrar en mi ubicación (GPS)" aria-label="GPS">📡</button>
     <button class="map-btn map-btn-sm" id="mapa-linea" title="Dibujar línea geológica en el mapa" aria-label="Dibujar línea">✏️</button>
@@ -1089,7 +1089,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v84';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v85';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -6865,7 +6865,7 @@ document.getElementById('mapa-infra').addEventListener('click', toggleInfra);
 document.getElementById('mapa-fab-handle').addEventListener('click', () => {
   const fab = document.getElementById('mapa-fab');
   fab.classList.toggle('colapsado');
-  document.getElementById('mapa-fab-handle').textContent = fab.classList.contains('colapsado') ? '▲' : '▾';
+  document.getElementById('mapa-fab-handle').textContent = fab.classList.contains('colapsado') ? '▲' : '▼';
   // Leaflet no vuelve a medir su contenedor solo tras un cambio de alto por CSS
   // (mismo patrón ya usado al abrir el Tab de Mapa, ver initMapaFull/renderMapaFull).
   setTimeout(() => mapaFull && mapaFull.invalidateSize(), 50);
