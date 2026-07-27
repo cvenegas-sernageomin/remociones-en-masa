@@ -992,6 +992,7 @@ body.map-mode #nav-buttons { display: none !important; }
     <button class="map-btn map-btn-sm" id="mapa-linea" title="Dibujar línea geológica en el mapa" aria-label="Dibujar línea">✏️</button>
     <button class="map-btn map-btn-sm" id="mapa-tiles" title="Descargar tiles del mapa para uso sin conexión" aria-label="Descargar tiles">⬇️</button>
     <button class="map-btn" id="mapa-estaciones" title="Estaciones meteorológicas (visor de alertas)">🌧️ Estaciones</button>
+    <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
     <span class="map-btn-stack">
       <button class="map-btn" id="mapa-criticos" title="Puntos Críticos INV 2026 (SENAPRED): riesgo por precipitación, Atacama/Coquimbo/Valparaíso">⚠️ P. Críticos</button>
       <small class="map-btn-src">SENAPRED</small>
@@ -1012,7 +1013,6 @@ body.map-mode #nav-buttons { display: none !important; }
       <button class="map-btn" id="mapa-peligros" title="Mapas de peligro georreferenciados (SERNAGEOMIN) como capa; se descargan solo al activar">🗺️ Mapas</button>
       <small class="map-btn-src">SERNAGEOMIN</small>
     </span>
-    <button class="map-btn" id="mapa-pronostico" title="Grilla de pronóstico de lluvia 0–48 h + isoterma 0° sobre la vista del mapa (Open-Meteo)">🌦️ Pronóstico</button>
     <span class="map-btn-stack">
       <button class="map-btn" id="mapa-ipt" title="Instrumentos de Planificación Territorial por región: límites urbanos, planes reguladores comunales e intercomunales">🏛️ IPT</button>
       <small class="map-btn-src">por región</small>
@@ -1089,7 +1089,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v85';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v86';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
