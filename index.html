@@ -966,6 +966,10 @@ body.map-mode #nav-buttons { display: none !important; }
     <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:8px;background:#e63946;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       ⬇️ KMZ del día (todas las RM)
     </button>
+    <button type="button" id="btn-reterm-combinado" disabled style="width:100%;padding:12px;margin-bottom:6px;background:#1d4ed8;border:none;border-radius:8px;color:#fff;cursor:not-allowed;opacity:0.5;font-size:0.92rem;font-weight:600">
+      📄 RETERM combinado
+    </button>
+    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 10px 0">Marca <b>2 o más</b> RM con su casilla para generar <b>un solo informe RETERM</b>. La Figura A satelital muestra todos los puntos GPS rotulados (RM-01, RM-02…) y cada sección indica a qué RM corresponde.</p>
     <button type="button" id="btn-guardar-jornada" style="width:100%;padding:12px;margin-bottom:8px;background:#0f766e;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       🗓️ Archivar jornada y empezar de cero
     </button>
@@ -1091,7 +1095,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v89';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v90';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3623,49 +3627,13 @@ function docxHeaderXml() {
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="' + A_NS + '" xmlns:pic="' + PIC_NS + '">' + wP(wImg('rId1', cx, cy, 1, 'logo'), { after: 0 }) + '</w:hdr>';
 }
 
-async function generateRETERM(record, ret) {
-  const data = record ? record.data : collectFormData();
-  const fotos = record ? (record.fotos || []) : fotosData;
+// Contenido textual del RETERM (campos derivados + observaciones + conclusiones).
+// Extraído de generateRETERM para que el informe individual y el compilado compartan
+// exactamente la misma prosa institucional (no duplicar / no divergir).
+function construirContenidoReterm(data, opts) {
+  opts = opts || {};
+  const tasaHorariaEvento = opts.tasaHorariaEvento != null ? opts.tasaHorariaEvento : null;
   const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
-  loading.classList.add('open'); lmsg.textContent = 'Generando informe RETERM...';
-
-  try {
-    // Fotos → base64 (fast-path: las RM guardadas ya traen blobDataUrl, no reconvertir)
-    const b64Fotos = await Promise.all(fotos.map(f => f.blobDataUrl
-      ? Promise.resolve(f.blobDataUrl)
-      : (f.blob
-        ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); })
-        : Promise.resolve(null))));
-
-    // Figura A: usa la guardada; si no hay y estamos en vivo, la captura
-    let figuraA = data.figuraA || null;
-    if (!figuraA && data.coords) { try { figuraA = await capturarFiguraA(data.coords.lat, data.coords.lng); } catch {} }
-
-    // Figura B: gráfico de precipitación (diaria + acumulada) en el punto, con marca del evento
-    // y sombreado si el usuario marcó rango. Serie: Open-Meteo modelo (o ERA5 si es histórico).
-    // Si falla el fetch, no se incluye — no bloquea el informe.
-    let figuraLluvia = null;
-    let tasaHorariaEvento = null;   // mm/h en la hora del evento, leída de la misma serie del gráfico
-    if (data.coords) {
-      try {
-        const serie = await fetchLluviaSerieParaGrafico(data.coords.lat, data.coords.lng, data['fecha-inicio'], data['fecha-fin']);
-        if (serie) {
-          const iniISO = data['fecha-inicio'] ? (data['fecha-inicio'] + 'T' + (data['hora-inicio'] || '12:00') + ':00') : null;
-          const finISO = data['fecha-fin'] ? (data['fecha-fin'] + 'T' + (data['hora-fin'] || data['hora-inicio'] || '12:00') + ':00') : null;
-          figuraLluvia = renderLluviaChartPNG(serie, iniISO, finISO, data.coords);
-          if (iniISO && serie.hourly?.length) {
-            const evtMs = new Date(iniISO).getTime();
-            let mejor = null, mejorDiff = Infinity;
-            serie.hourly.forEach(h => { const diff = Math.abs(h.t - evtMs); if (diff < mejorDiff) { mejorDiff = diff; mejor = h; } });
-            // solo si la hora horaria encontrada está a <90 min del evento (evita mostrar el dato de otro día)
-            if (mejor && mejorDiff <= 90 * 60000) tasaHorariaEvento = Math.round(mejor.mm * 10) / 10;
-          }
-        }
-      } catch (e) { console.warn('Figura lluvia:', e); }
-    }
-
     // Coordenadas UTM
     let coordStr = 'No registradas';
     if (data.coords) {
@@ -3765,7 +3733,6 @@ async function generateRETERM(record, ret) {
     }
     if (data.efectos) obsPartes.push(esc(data.efectos));
     if (data.otros) obsPartes.push(esc(data.otros));
-    const observaciones = obsPartes.map((p, i) => `<p style="margin:0 0 6px 0;text-align:justify">${i + 1}. ${p}</p>`).join('');
 
     // Conclusión auto — síntesis razonada a partir de todo lo compilado. Cada oración se agrega
     // SOLO si el dato fue registrado (no inventa). Encadena: mecanismo/material → magnitud →
@@ -3893,7 +3860,359 @@ async function generateRETERM(record, ret) {
         'Restringir y señalizar el acceso a la zona afectada mientras se mantengan las condiciones de inestabilidad.',
       ];
     }
-    const recomHtml = recomList.map((r, i) => `<p style="margin:0 0 5px 0;text-align:justify">${String.fromCharCode(97 + i)}. ${esc(r)}</p>`).join('');
+
+  return { coordStr, fechaStr, fechaInspStr, estado, region, regionCorta, tipo, desencadenanteTxt, litologiaTxt, tipoLaderaTxt, localidad, antecedente, nReterm, anio, tituloReporte, areaVol, areaNum, volNum, morfoVals, morfoTexto, obsPartes, concluParts, recomList };
+}
+
+// ===== Figura satelital de conjunto (varios puntos GPS rotulados) =====
+// Modelada en capturarFiguraA, pero con bbox que abarca N puntos + marcador y etiqueta por punto.
+async function capturarFiguraACombinada(puntos) {
+  if (!puntos || !puntos.length) return null;
+  const lats = puntos.map(p => p.lat), lngs = puntos.map(p => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const latC = (minLat + maxLat) / 2, lngC = (minLng + maxLng) / 2;
+  const W = 800, H = 600;
+  const mPerLat = 111320, mPerLng = 111320 * Math.cos(latC * Math.PI / 180);
+  // medio-anchos en metros: envolvente + 25% de margen, con un mínimo tipo FIGURA_A_RADIO_M
+  let halfLatM = Math.max((maxLat - minLat) / 2 * mPerLat * 1.25, FIGURA_A_RADIO_M);
+  let halfLngM = Math.max((maxLng - minLng) / 2 * mPerLng * 1.25, FIGURA_A_RADIO_M);
+  // forzar relación de aspecto 4:3 (W/H) en metros reales para no deformar la imagen
+  const targetAR = W / H;
+  if (halfLngM / halfLatM < targetAR) halfLngM = halfLatM * targetAR;
+  else halfLatM = halfLngM / targetAR;
+  const halfLat = halfLatM / mPerLat, halfLng = halfLngM / mPerLng;
+  const west = lngC - halfLng, east = lngC + halfLng, south = latC - halfLat, north = latC + halfLat;
+  const url = `https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export?bbox=${west},${south},${east},${north}&bboxSR=4326&size=${W},${H}&imageSR=4326&format=jpg&f=image`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!resp.ok) throw new Error('Esri export falló');
+    const blob = await resp.blob();
+    const imgUrl = URL.createObjectURL(blob);
+    const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = imgUrl; });
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, W, H);
+    URL.revokeObjectURL(imgUrl);
+
+    const drawLabel = (x, y, text, align) => {
+      ctx.font = 'bold 12px Arial';
+      const tw = ctx.measureText(text).width;
+      const bx = align === 'right' ? x - tw - 8 : x + 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(bx, y, tw + 6, 15);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, bx + 3, y + 12);
+    };
+    // Grilla UTM
+    ctx.strokeStyle = 'rgba(255,255,0,0.85)';
+    ctx.lineWidth = 1;
+    [0.2, 0.5, 0.8].forEach(fx => {
+      const x = fx * W;
+      const utm = latLonToUTM(latC, west + fx * (east - west));
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      drawLabel(x, 2, utm.E.toLocaleString() + ' E', fx > 0.8 ? 'right' : 'left');
+    });
+    [0.2, 0.5, 0.8].forEach(fy => {
+      const y = fy * H;
+      const utm = latLonToUTM(north - fy * (north - south), lngC);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      drawLabel(2, y + 2, utm.N.toLocaleString() + ' N', 'left');
+    });
+
+    // Marcador + etiqueta por cada punto (proyección lineal inversa del bbox)
+    puntos.forEach(p => {
+      const px = (p.lng - west) / (east - west) * W;
+      const py = (north - p.lat) / (north - south) * H;
+      ctx.beginPath(); ctx.moveTo(px, py - 22); ctx.lineTo(px, py - 8);
+      ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, 8, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ff0000'; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+      if (p.label) {
+        ctx.font = 'bold 13px Arial';
+        const tw = ctx.measureText(p.label).width;
+        const lx = px + 12 + tw + 8 > W ? px - 12 - tw - 8 : px + 12;
+        ctx.fillStyle = 'rgba(0,0,0,0.72)';
+        ctx.fillRect(lx, py - 9, tw + 8, 18);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(p.label, lx + 4, py + 4);
+      }
+    });
+
+    // Escala aproximada
+    const escalaM = 200;
+    const pxPorGrado = W / (east - west);
+    const metrosPorGrado = 111320 * Math.cos(latC * Math.PI / 180);
+    const escalaPx = escalaM / metrosPorGrado * pxPorGrado;
+    const sx = W - escalaPx - 14, sy = H - 20;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + escalaPx, sy); ctx.stroke();
+    drawLabel(sx, sy - 18, escalaM + ' m', 'left');
+
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  }
+}
+
+// ===== RETERM compilado (varias RM en un solo .docx) =====
+// Reutiliza construirContenidoReterm() (misma prosa institucional que el informe individual)
+// y los helpers OOXML. Una figura de conjunto arriba + tabla resumen + una sección por RM.
+async function generateRETERMCombinado(records, nReterm, ret) {
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Generando RETERM compilado...';
+  try {
+    const coordDe = (d) => { const c = d && d.coords; if (!c || c.lat == null) return null; return { lat: c.lat, lng: c.lng != null ? c.lng : c.lon }; };
+
+    // Puntos GPS (rotulados RM-01, RM-02…) para la figura de conjunto
+    const puntos = [];
+    records.forEach((rec, i) => {
+      const p = coordDe(rec.data);
+      if (p) puntos.push({ lat: p.lat, lng: p.lng, label: 'RM-' + String(i + 1).padStart(2, '0') });
+    });
+    const figConjunto = puntos.length ? await capturarFiguraACombinada(puntos) : null;
+
+    // Región del título: si todas comparten, se usa; si no, "VARIAS REGIONES"
+    const regionesSet = new Set(records.map(r => (r.data.region || '').replace(/\s*\(.*\)/, '').trim()).filter(Boolean));
+    const regionTit = regionesSet.size === 1 ? [...regionesSet][0].toUpperCase() : 'VARIAS REGIONES';
+    const anio = (records[0].data['fecha-inicio'] || new Date().toISOString()).slice(0, 4);
+    const nn = String(nReterm || 'XX').padStart(2, '0');
+    const tituloReporte = `REPORTE TÉCNICO DE REMOCIÓN EN MASA COMPILADO ${regionTit} ${nn}/${anio}`;
+    const algunaPrelim = records.some(r => !(r.data && r.data.confirmada));
+
+    const LW = 5160, RW = 5640, FULL = 10800;
+    const secRow = (t) => wTr(wC(wP(wR(t, { b: true }), { align: 'center' }), { w: FULL, span: 2 }));
+    const fullRow = (c) => wTr(wC(c, { w: FULL, span: 2 }));
+    const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+    let rc = 3; const imgRels = []; const mediaFiles = [];
+
+    // --- Figura de conjunto (párrafos, no fila de tabla) ---
+    let figConjPara;
+    if (figConjunto) {
+      const bytes = dataUrlToU8(figConjunto);
+      const ext = /^data:image\/png/.test(figConjunto) ? 'png' : 'jpg';
+      const d = await imgDims(figConjunto);
+      const cx = Math.round(6.6 * EMU_IN), cy = Math.round(cx * d.h / d.w);
+      const rid = 'rId' + (++rc);
+      imgRels.push('<Relationship Id="' + rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/figuraConjunto.' + ext + '"/>');
+      mediaFiles.push({ name: 'word/media/figuraConjunto.' + ext, bytes });
+      figConjPara = wP(wImg(rid, cx, cy, 800, 'FiguraConjunto'), { align: 'center', after: 40 })
+        + wP(wR('Figura A. Ubicación de conjunto de las remociones en masa incluidas en este reporte (imagen satelital con grilla UTM; cada punto rotulado con su identificador RM-NN).', { i: true, sz: 17 }), { align: 'center', after: 120 });
+    } else {
+      figConjPara = wP(wR('Figura A: sin imagen satelital (ninguna RM con coordenadas, o sin conexión al generar).', { i: true, color: '999999', sz: 18 }), { align: 'center', after: 120 });
+    }
+
+    // --- Tabla resumen (una fila por RM) ---
+    let resumenRows = wTr(
+      wC(wP(wR('N°', { b: true })), { w: 700 })
+      + wC(wP(wR('ID RM', { b: true })), { w: 2200 })
+      + wC(wP(wR('Localidad / Comuna', { b: true })), { w: 3400 })
+      + wC(wP(wR('Tipo', { b: true })), { w: 2400 })
+      + wC(wP(wR('Coordenadas UTM', { b: true })), { w: 2100 }));
+    records.forEach((rec, i) => {
+      const d = rec.data;
+      const p = coordDe(d);
+      let coordStr = 'Sin coordenadas';
+      if (p) { const u = latLonToUTM(p.lat, p.lng); coordStr = u.E.toLocaleString() + ' E / ' + u.N.toLocaleString() + ' ' + (p.lat < 0 ? 'S' : 'N') + ' (' + u.zone + ')'; }
+      const loc = [d.localidad, d.comuna ? 'comuna de ' + d.comuna : null].filter(Boolean).join(' — ') || '—';
+      const tipo = campoTxt(d, 'tipo-movimiento') || 'remoción en masa';
+      resumenRows += wTr(
+        wC(wP(wR('RM-' + String(i + 1).padStart(2, '0'), { b: true })), { w: 700 })
+        + wC(wP(wR(rec.id || '—')), { w: 2200 })
+        + wC(wP(wR(loc)), { w: 3400 })
+        + wC(wP(wR(tipo)), { w: 2400 })
+        + wC(wP(wR(coordStr)), { w: 2100 }));
+    });
+    const resumenTabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0"/></w:tblPr>'
+      + '<w:tblGrid><w:gridCol w:w="700"/><w:gridCol w:w="2200"/><w:gridCol w:w="3400"/><w:gridCol w:w="2400"/><w:gridCol w:w="2100"/></w:tblGrid>'
+      + resumenRows + '</w:tbl>';
+
+    // --- Una sección por RM ---
+    const refsUnion = new Map();
+    let seccionesXml = '';
+    for (let i = 0; i < records.length; i++) {
+      const rec = records[i], data = rec.data;
+      const fotos = rec.fotos || [];
+      const rmLabel = 'RM-' + String(i + 1).padStart(2, '0');
+      const C = construirContenidoReterm(data, {});   // sin Figura B (tasaHorariaEvento null) en el compilado
+
+      // Fotos de esta RM → media + rels
+      const b64Fotos = await Promise.all(fotos.map(f => f.blobDataUrl
+        ? Promise.resolve(f.blobDataUrl)
+        : (f.blob ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); }) : Promise.resolve(null))));
+      let fotosRows = '';
+      for (let k = 0; k < b64Fotos.length; k++) {
+        if (!b64Fotos[k]) continue;
+        const dd = await imgDims(b64Fotos[k]);
+        let cx = Math.round(6.6 * EMU_IN), cy = Math.round(cx * dd.h / dd.w);
+        const maxCy = Math.round(7.3 * EMU_IN);
+        if (cy > maxCy) { cy = maxCy; cx = Math.round(cy * dd.w / dd.h); }
+        const ext = /^data:image\/png/.test(b64Fotos[k]) ? 'png' : 'jpg';
+        const rid = 'rId' + (++rc);
+        const name = 'foto_' + (i + 1) + '_' + (k + 1) + '.' + ext;
+        imgRels.push('<Relationship Id="' + rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/' + name + '"/>');
+        mediaFiles.push({ name: 'word/media/' + name, bytes: dataUrlToU8(b64Fotos[k]) });
+        const fo = fotos[k] || {};
+        const cap = ((fo.desc || '') + (fo.azimuth != null ? ' (azimut ' + fo.azimuth + '°N)' : '')).trim() || 'Fotografía de terreno.';
+        fotosRows += fullRow(wP(wImg(rid, cx, cy, 2000 + i * 30 + k, 'Foto'), { align: 'center', after: 40 })
+          + wP(wR(rmLabel + ' — Fotografía ' + (k + 1) + '. ' + cap, { i: true, sz: 17 }), { align: 'center' }));
+      }
+
+      // Identificación (campos de texto, sin Figura A — la figura es de conjunto)
+      const ubic = [C.localidad !== '___' ? C.localidad : null, data.comuna ? 'Comuna de ' + data.comuna : null,
+        data.region ? 'Región de ' + (data.region || '').replace(/\s*\(.*\)/, '') : null].filter(Boolean).join(' — ') || '—';
+      const idFields = [
+        ['TIPO PRINCIPAL', C.tipo],
+        ['UBICACIÓN', ubic],
+        ['COORDENADAS (UTM WGS84)', C.coordStr],
+        ['DÍA EVENTO', C.fechaStr],
+        ['FECHA DE INSPECCIÓN', C.fechaInspStr || 'No registrada'],
+        ['DESENCADENANTE', C.desencadenanteTxt || 'No registrado'],
+        ['ESTADO', C.estado],
+        ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', C.areaVol],
+        ['ANTECEDENTE', C.antecedente],
+        ['ID RM', rec.id || '—'],
+      ];
+      let idRows = '';
+      idFields.forEach(f => { idRows += wTr(wC(wField(f[0], f[1]), { w: FULL, span: 2 })); });
+
+      const obsXml = C.obsPartes.map((p, k) => wP(wR((k + 1) + '. ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
+      const nFotosOk = fotos.filter(f => f.blob || f.blobDataUrl).length;
+      const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
+      const concluXml = C.concluParts.map(p => wP(wR('• ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('')
+        + wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
+        + C.recomList.map(r => wP(wR('• ' + htmlToPlain(r)), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('');
+
+      referenciasOrdenadas(data.referencias).forEach(x => { if (!refsUnion.has(x.r)) refsUnion.set(x.r, x); });
+
+      const tabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>'
+        + '<w:tblGrid><w:gridCol w:w="' + LW + '"/><w:gridCol w:w="' + RW + '"/></w:tblGrid>'
+        + secRow(rmLabel + ' — Descripción de remoción en masa tipo ' + C.tipo + ' ocurrida el ' + C.fechaStr + (C.fechaInspStr ? ' — inspección en terreno del ' + C.fechaInspStr : ''))
+        + idRows
+        + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
+        + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
+        + secRow('Observaciones') + fullRow(obsXml)
+        + secRow('Conclusiones y recomendaciones') + fullRow(concluXml)
+        + '</w:tbl>';
+
+      const tituloRM = wP(wR('REMOCIÓN EN MASA N°' + (i + 1) + ' — ' + rmLabel + (C.localidad && C.localidad !== '___' ? ' — ' + C.localidad : ''),
+        { b: true, sz: 26, color: 'C00000' }), { align: 'left', after: 80 });
+      seccionesXml += (i > 0 ? pageBreak : '') + tituloRM + tabla;
+    }
+
+    // Referencias (unión deduplicada de todas las RM)
+    const refsArr = [...refsUnion.values()];
+    const refsXml = refsArr.length
+      ? wP(wR('Referencias', { b: true }), { align: 'center', after: 60 })
+        + refsArr.map(x => wP(wR(x.r), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('')
+      : '';
+
+    const today = new Date().toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const iniciales = (records[0].data['prof-iniciales'] || getIniciales() || '___').toUpperCase();
+
+    const bannerPrelim = algunaPrelim
+      ? wP(wR('INFORME PRELIMINAR — CONTIENE UNA O MÁS RM PENDIENTES DE REVISIÓN Y VALIDACIÓN PROFESIONAL', { b: true, color: 'C00000', sz: 20 }), { align: 'center', after: 120 })
+      : '';
+
+    const docBody = wP(wR('SERVICIO NACIONAL DE GEOLOGÍA Y MINERÍA - SERNAGEOMIN'), { align: 'center' })
+      + wP(wR(tituloReporte, { b: true, u: true }), { align: 'center', after: 60 })
+      + wP(wR('Reporte compilado de ' + records.length + ' remociones en masa.', { i: true, sz: 18 }), { align: 'center', after: 120 })
+      + bannerPrelim
+      + wP(wR('Ubicación de conjunto', { b: true }), { after: 60 })
+      + figConjPara
+      + wP(wR('Cuadro resumen de las remociones incluidas', { b: true }), { after: 60 })
+      + resumenTabla
+      + wP(wR(''), { after: 120 })
+      + seccionesXml
+      + refsXml
+      + wP(wR('Elaborado el ' + today + '/' + iniciales + '_UATEG', { b: true }), { align: 'right' });
+
+    const sectPr = '<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/>'
+      + '<w:pgMar w:top="2160" w:right="720" w:bottom="720" w:left="720" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="708"/></w:sectPr>';
+
+    const documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="' + A_NS + '" xmlns:pic="' + PIC_NS + '"><w:body>' + docBody + sectPr + '</w:body></w:document>';
+    const docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>' + imgRels.join('') + '</Relationships>';
+
+    const logoU8 = new Uint8Array(await (await fetch('vendor/reterm-logo.png')).arrayBuffer());
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', DOCX_CT);
+    zip.file('_rels/.rels', DOCX_ROOT_RELS);
+    zip.file('docProps/core.xml', DOCX_CORE);
+    zip.file('docProps/app.xml', DOCX_APP);
+    zip.file('word/document.xml', documentXml);
+    zip.file('word/_rels/document.xml.rels', docRels);
+    zip.file('word/styles.xml', DOCX_STYLES);
+    zip.file('word/settings.xml', DOCX_SETTINGS);
+    zip.file('word/header1.xml', docxHeaderXml());
+    zip.file('word/_rels/header1.xml.rels', DOCX_HEADER_RELS);
+    zip.file('word/media/logo.png', logoU8);
+    mediaFiles.forEach(m => zip.file(m.name, m.bytes));
+
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const filename = `RETERM_COMPILADO_${regionTit.replace(/\s+/g, '_')}_${nn}_${records.length}RM.docx`;
+    const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (ret) return { blob, filename, mime };
+    await shareOrDownload(blob, filename, mime);
+  } catch (err) {
+    alert('Error al generar el RETERM compilado: ' + err.message);
+    console.error(err);
+  } finally {
+    loading.classList.remove('open');
+  }
+}
+
+async function generateRETERM(record, ret) {
+  const data = record ? record.data : collectFormData();
+  const fotos = record ? (record.fotos || []) : fotosData;
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
+  loading.classList.add('open'); lmsg.textContent = 'Generando informe RETERM...';
+
+  try {
+    // Fotos → base64 (fast-path: las RM guardadas ya traen blobDataUrl, no reconvertir)
+    const b64Fotos = await Promise.all(fotos.map(f => f.blobDataUrl
+      ? Promise.resolve(f.blobDataUrl)
+      : (f.blob
+        ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); })
+        : Promise.resolve(null))));
+
+    // Figura A: usa la guardada; si no hay y estamos en vivo, la captura
+    let figuraA = data.figuraA || null;
+    if (!figuraA && data.coords) { try { figuraA = await capturarFiguraA(data.coords.lat, data.coords.lng); } catch {} }
+
+    // Figura B: gráfico de precipitación (diaria + acumulada) en el punto, con marca del evento
+    // y sombreado si el usuario marcó rango. Serie: Open-Meteo modelo (o ERA5 si es histórico).
+    // Si falla el fetch, no se incluye — no bloquea el informe.
+    let figuraLluvia = null;
+    let tasaHorariaEvento = null;   // mm/h en la hora del evento, leída de la misma serie del gráfico
+    if (data.coords) {
+      try {
+        const serie = await fetchLluviaSerieParaGrafico(data.coords.lat, data.coords.lng, data['fecha-inicio'], data['fecha-fin']);
+        if (serie) {
+          const iniISO = data['fecha-inicio'] ? (data['fecha-inicio'] + 'T' + (data['hora-inicio'] || '12:00') + ':00') : null;
+          const finISO = data['fecha-fin'] ? (data['fecha-fin'] + 'T' + (data['hora-fin'] || data['hora-inicio'] || '12:00') + ':00') : null;
+          figuraLluvia = renderLluviaChartPNG(serie, iniISO, finISO, data.coords);
+          if (iniISO && serie.hourly?.length) {
+            const evtMs = new Date(iniISO).getTime();
+            let mejor = null, mejorDiff = Infinity;
+            serie.hourly.forEach(h => { const diff = Math.abs(h.t - evtMs); if (diff < mejorDiff) { mejorDiff = diff; mejor = h; } });
+            // solo si la hora horaria encontrada está a <90 min del evento (evita mostrar el dato de otro día)
+            if (mejor && mejorDiff <= 90 * 60000) tasaHorariaEvento = Math.round(mejor.mm * 10) / 10;
+          }
+        }
+      } catch (e) { console.warn('Figura lluvia:', e); }
+    }
+
+    // Contenido textual (derivados + observaciones + conclusiones) extraído a
+    // construirContenidoReterm() para reutilizarlo intacto en el RETERM compilado.
+    const _C = construirContenidoReterm(data, { tasaHorariaEvento });
+    const { coordStr, fechaStr, fechaInspStr, estado, region, regionCorta, tipo,
+      desencadenanteTxt, litologiaTxt, tipoLaderaTxt, localidad, antecedente, nReterm, anio,
+      tituloReporte, areaVol, areaNum, volNum, morfoVals, morfoTexto, obsPartes, concluParts, recomList } = _C;
 
     // (el registro fotográfico se arma directamente en OOXML más abajo)
 
@@ -4076,6 +4395,7 @@ async function generateRETERM(record, ret) {
 // =====================
 const RM_DB = 'catastro-rm', RM_STORE = 'rms';
 let savedRMsCache = [];
+const rmSelCombinado = new Set();   // keys de RM marcadas para el RETERM compilado
 
 const RM_DB_VERSION = 3, LINEA_STORE = 'lineas', JORNADA_STORE = 'jornadas';
 let _dbPromise = null;
@@ -4599,7 +4919,7 @@ function populateForm(rec) {
 }
 
 // ----- Modal de lista de RMs -----
-function openRMsModal() { renderRMsList(); renderJornadas(); document.getElementById('rms-modal').style.display = 'flex'; }
+function openRMsModal() { rmSelCombinado.clear(); renderRMsList(); renderJornadas(); document.getElementById('rms-modal').style.display = 'flex'; }
 function closeRMsModal() { document.getElementById('rms-modal').style.display = 'none'; }
 
 // ---- Jornadas (cerrar el día): archivar las RM del día y empezar de cero ----
@@ -4712,7 +5032,10 @@ async function renderRMsList() {
       ? '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #bbf7d0;border-radius:5px;padding:1px 6px;margin-left:6px">✓ Confirmada</span>'
       : '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#b71c1c;background:#fdecea;border:1px solid #f5c2c0;border-radius:5px;padding:1px 6px;margin-left:6px">Preliminar</span>';
     return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px">
-      <div style="font-weight:600;word-break:break-word;color:#111">${escapeHtmlJS(titulo)}${estado}</div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;word-break:break-word;color:#111">
+        <input type="checkbox" class="rm-sel" data-key="${r.key}" ${rmSelCombinado.has(r.key) ? 'checked' : ''} style="width:18px;height:18px;flex:none">
+        <span>${escapeHtmlJS(titulo)}${estado}</span>
+      </label>
       <div style="font-size:0.82rem;color:#4b5563;margin:2px 0">${sub}</div>
       <div style="font-size:0.7rem;color:#6b7280">${escapeHtmlJS(r.id)} · guardada ${new Date(r.savedAt).toLocaleDateString('es-CL')}</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
@@ -4725,6 +5048,35 @@ async function renderRMsList() {
   }).join('');
   list.querySelectorAll('button[data-act]').forEach(btn =>
     btn.addEventListener('click', () => handleRMAction(btn.dataset.act, Number(btn.dataset.key))));
+  list.querySelectorAll('input.rm-sel').forEach(cb =>
+    cb.addEventListener('change', () => {
+      const k = Number(cb.dataset.key);
+      if (cb.checked) rmSelCombinado.add(k); else rmSelCombinado.delete(k);
+      actualizarBtnCombinado();
+    }));
+  actualizarBtnCombinado();
+}
+
+function actualizarBtnCombinado() {
+  const btn = document.getElementById('btn-reterm-combinado');
+  if (!btn) return;
+  const n = rmSelCombinado.size;
+  btn.textContent = '📄 RETERM combinado' + (n ? ' (' + n + ')' : '');
+  btn.disabled = n < 2;
+  btn.style.opacity = n < 2 ? '0.5' : '1';
+  btn.style.cursor = n < 2 ? 'not-allowed' : 'pointer';
+}
+
+async function handleRMCombinado() {
+  // registros seleccionados, en el orden en que aparecen en la lista
+  const seleccion = savedRMsCache.filter(r => rmSelCombinado.has(r.key));
+  if (seleccion.length < 2) { alert('Marca al menos 2 RM para generar un informe combinado.'); return; }
+  const sugerido = (seleccion[0].data && seleccion[0].data['n-reterm']) || '';
+  const nReterm = prompt('N° del RETERM compilado (ej. 05). Cada RM conserva su propio ID (RM-01, RM-02…) dentro del informe.', sugerido);
+  if (nReterm === null) return;   // canceló
+  closeRMsModal();
+  const f = await generateRETERMCombinado(seleccion, (nReterm || '').trim() || 'XX', true);
+  if (f) { _archivosRM = [f]; abrirEntregaModal('RETERM compilado (' + seleccion.length + ' RM)'); }
 }
 
 async function handleRMAction(act, key) {
@@ -6864,6 +7216,7 @@ document.getElementById('revision-generar').addEventListener('click', () => {
 });
 document.getElementById('revision-cancelar').addEventListener('click', () => { document.getElementById('revision-modal').style.display = 'none'; });
 document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
+document.getElementById('btn-reterm-combinado').addEventListener('click', handleRMCombinado);
 document.getElementById('btn-guardar-jornada').addEventListener('click', jornadaGuardar);
 
 // Tab bar Ficha ⇄ Mapa + botones de la vista de mapa
