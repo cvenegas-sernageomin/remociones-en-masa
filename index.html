@@ -1116,7 +1116,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v94';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v95';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -6932,7 +6932,14 @@ async function cargarCatalogoRMASA(forzar) {
 // warpeados a plate-carrée) se bajan SOLO al activar la capa y NO se precachean en el SW,
 // así que no engordan la app. Panel con selector (si hay >1 mapa), opacidad y leyenda.
 const PEL_BASE = 'https://raw.githubusercontent.com/cvenegas-sernageomin/mapas-peligros-overlays/main/';
-let pelOn = false, pelData = null, pelOverlay = null, pelActivoId = null, pelOpacidad = 0.75, pelCtrl = null, pelColapsado = false;
+let pelOn = false, pelData = null, pelOverlay = null, pelActivoId = null, pelOpacidad = 0.75, pelCtrl = null, pelColapsado = false, pelVer = '';
+// Cache-busting de las imágenes de overlay/leyenda: el SW bypasea raw.githubusercontent.com
+// (van a la red directa) pero el navegador SÍ cachea los <img> por HTTP; si se regenera un
+// overlay con el MISMO nombre de archivo, el navegador puede servir la imagen vieja mientras
+// el manifest (que se pide con cache:'no-store') ya trae los bounds nuevos → overlay viejo
+// estirado a bounds nuevos = desalineado. Se cuelga la versión/fecha del manifest como query
+// param: al cambiar el manifest cambia la URL y no puede quedar caché vieja.
+function pelUrl(path) { return PEL_BASE + path + (pelVer ? '?v=' + encodeURIComponent(pelVer) : ''); }
 
 function pelBtnEstado(txt, activo) {
   const b = document.getElementById('mapa-peligros');
@@ -6945,6 +6952,7 @@ async function cargarMapasPeligro() {
   const r = await fetch(PEL_BASE + 'manifest.json', { cache: 'no-store' });
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const j = await r.json();
+  pelVer = String(j.version || j.actualizado || '');
   pelData = (j.mapas || []).filter(m => m && m.bounds && m.overlay);
   return pelData;
 }
@@ -6954,7 +6962,7 @@ function mostrarMapaPeligro(id, fly) {
   if (pelOverlay) { mapaFull.removeLayer(pelOverlay); pelOverlay = null; }
   const b = m.bounds, bounds = [[b.s, b.w], [b.n, b.e]];
   if (m.opacidad != null) pelOpacidad = m.opacidad;
-  pelOverlay = L.imageOverlay(PEL_BASE + m.overlay, bounds, { opacity: pelOpacidad, pane: 'peligros', interactive: false });
+  pelOverlay = L.imageOverlay(pelUrl(m.overlay), bounds, { opacity: pelOpacidad, pane: 'peligros', interactive: false });
   pelOverlay.addTo(mapaFull);
   pelActivoId = id;
   if (fly) {
@@ -7058,7 +7066,7 @@ function verLeyendaPeligro() {
     + `<b style="font-size:.85rem">Leyenda — ${esc(m.titulo || '')}</b>`
     + `<button type="button" class="leg-cerrar" style="padding:6px 12px;background:#e5534b;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;flex:0 0 auto">✕ Cerrar</button></div>`
     + `<div class="leg-viewport" style="flex:1;overflow:hidden;background:#fff;border-radius:8px;position:relative;touch-action:none;cursor:grab">`
-    + `<img class="leg-img" src="${PEL_BASE + m.leyenda}" style="position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none" alt="leyenda" draggable="false"></div>`
+    + `<img class="leg-img" src="${pelUrl(m.leyenda)}" style="position:absolute;left:0;top:0;transform-origin:0 0;max-width:none;user-select:none;-webkit-user-drag:none" alt="leyenda" draggable="false"></div>`
     + `<div style="text-align:center;color:#c9d4de;font-size:.68rem;margin-top:6px">Pellizca o doble toca para hacer zoom · arrastra para mover</div>`;
   document.body.appendChild(ov);
   ov.querySelector('.leg-cerrar').addEventListener('click', () => ov.remove());
