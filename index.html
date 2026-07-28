@@ -416,6 +416,14 @@ body.map-mode #nav-buttons { display: none !important; }
     <input type="text" id="prof-iniciales" placeholder="Ej: CVB" maxlength="5" style="text-transform:uppercase">
   </div>
 
+  <div class="field">
+    <label>Origen del dato <button class="help-btn" data-help="origen">?</button></label>
+    <div class="toggle-group" id="origen-toggle">
+      <button class="toggle-btn active" data-val="terreno">🏔️ Terreno</button>
+      <button class="toggle-btn" data-val="gabinete">🗂️ Gabinete</button>
+    </div>
+  </div>
+
   <div class="field" style="display:none">
     <label>ID de la RM <button class="help-btn" data-help="rm-id">?</button></label>
     <input type="text" id="rm-id" placeholder="RM-CVB-AAAAMMDD-NN">
@@ -845,6 +853,11 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
+    <label>Fuente / URL (opcional) <button class="help-btn" data-help="fuente-url">?</button></label>
+    <input type="url" id="fuente-url" placeholder="https://... (noticia, informe, etc.)">
+  </div>
+
+  <div class="field">
     <label>Recomendaciones <button class="help-btn" data-help="recomendaciones">?</button></label>
     <select id="recom-select" style="margin-bottom:8px">
       <option value="" selected disabled>+ Agregar recomendación…</option>
@@ -963,13 +976,19 @@ body.map-mode #nav-buttons { display: none !important; }
       <h3 style="margin:0;font-size:1.05rem;color:#111">📋 RMs guardadas</h3>
       <button type="button" id="rms-close" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#111">✕</button>
     </div>
+    <div class="toggle-group" id="rms-coleccion-toggle" style="margin-bottom:10px">
+      <button type="button" class="toggle-btn active" data-val="terreno">🏔️ Terreno (<span id="rms-count-terreno">0</span>)</button>
+      <button type="button" class="toggle-btn" data-val="gabinete">🗂️ Gabinete (<span id="rms-count-gabinete">0</span>)</button>
+    </div>
     <button type="button" id="btn-kmz-dia" style="width:100%;padding:12px;margin-bottom:8px;background:#e63946;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       ⬇️ KMZ del día (todas las RM)
     </button>
-    <button type="button" id="btn-reterm-combinado" disabled style="width:100%;padding:12px;margin-bottom:6px;background:#1d4ed8;border:none;border-radius:8px;color:#fff;cursor:not-allowed;opacity:0.5;font-size:0.92rem;font-weight:600">
-      📄 RETERM combinado
-    </button>
-    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 10px 0">Marca <b>2 o más</b> RM con su casilla para generar <b>un solo informe RETERM</b>. La Figura A satelital muestra todos los puntos GPS rotulados (RM-01, RM-02…) y cada sección indica a qué RM corresponde.</p>
+    <div id="reterm-combinado-wrap">
+      <button type="button" id="btn-reterm-combinado" disabled style="width:100%;padding:12px;margin-bottom:6px;background:#1d4ed8;border:none;border-radius:8px;color:#fff;cursor:not-allowed;opacity:0.5;font-size:0.92rem;font-weight:600">
+        📄 RETERM combinado
+      </button>
+      <p style="font-size:0.72rem;color:#6b7280;margin:0 0 10px 0">Marca <b>2 o más</b> RM con su casilla para generar <b>un solo informe RETERM</b>. La Figura A satelital muestra todos los puntos GPS rotulados (RM-01, RM-02…) y cada sección indica a qué RM corresponde.</p>
+    </div>
     <button type="button" id="btn-guardar-jornada" style="width:100%;padding:12px;margin-bottom:8px;background:#0f766e;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:0.92rem;font-weight:600">
       🗓️ Archivar jornada y empezar de cero
     </button>
@@ -978,7 +997,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:8px;color:#111;cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
       <input type="file" id="input-backup" accept=".json,application/json" style="display:none">
     </div>
-    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras y lo ves en el mapa, incluso en otro dispositivo.</p>
+    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas de la colección activa (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras — reconoce solo si es de Terreno o Gabinete.</p>
     <div id="rms-list"></div>
     <div style="border-top:1px solid #e5e7eb;margin-top:6px;padding-top:10px">
       <h4 style="margin:0 0 8px;font-size:0.95rem;color:#111">🗓️ Jornadas archivadas</h4>
@@ -1095,7 +1114,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v91';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v92';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -1166,6 +1185,7 @@ function initToggleGroup(groupId) {
 initToggleGroup('zona-toggle');
 initToggleGroup('amenaza-toggle');
 initToggleGroup('plasticidad-toggle');
+initToggleGroup('origen-toggle');
 
 function getToggleValue(groupId) {
   const active = document.querySelector(`#${groupId} .toggle-btn.active`);
@@ -1948,6 +1968,10 @@ const HELP_TEXTS = {
     title: 'Zona del evento',
     text: 'Generación: donde se originó el movimiento (escarpe, corona). Runout: la zona donde se depositó o llegó el material. Ambas: si el área observada incluye origen y depósito.'
   },
+  origen: {
+    title: 'Origen del dato',
+    text: 'Terreno: la RM fue observada e inspeccionada directamente en el lugar. Gabinete: la RM se compiló desde una fuente externa (prensa, informes de otra institución, redes sociales, etc.) sin visita en terreno — es preliminar y no genera informe RETERM hasta que se copie a Terreno con los datos verificados.'
+  },
   fecha: {
     title: 'Fecha del evento',
     text: 'Ingresa la fecha en que ocurrió el evento. Si no la sabes con exactitud, marca "Aproximada". Si fue durante un período (ej: entre dos días de lluvia), marca "Rango" e ingresa fecha inicio y fin.'
@@ -2115,6 +2139,10 @@ const HELP_TEXTS = {
   otros: {
     title: 'Otras observaciones',
     text: 'Cualquier información adicional relevante que no encaje en los campos anteriores: evidencias de eventos previos en el mismo lugar, condiciones del terreno inusuales, información aportada por testigos locales, etc.'
+  },
+  'fuente-url': {
+    title: 'Fuente / URL',
+    text: 'Enlace a la fuente de la información (noticia de prensa, informe de otra institución, publicación en redes, etc.). Especialmente útil en RM de Gabinete, para trazar de dónde salió el dato antes de verificarlo en terreno.'
   },
   recomendaciones: {
     title: 'Recomendaciones',
@@ -3415,6 +3443,7 @@ function collectFormData() {
   return {
     id: document.getElementById('rm-id')?.value,
     coords: getCoords(),
+    origen: getToggleValue('origen-toggle') || 'terreno',
     zona: getToggleValue('zona-toggle'),
     'fecha-inicio': document.getElementById('fecha-inicio')?.value,
     'fecha-aprox': document.getElementById('fecha-aprox')?.checked,
@@ -3459,6 +3488,7 @@ function collectFormData() {
     'dist-vivienda': document.getElementById('dist-vivienda')?.value,
     efectos: document.getElementById('efectos')?.value,
     otros: document.getElementById('otros')?.value,
+    'fuente-url': document.getElementById('fuente-url')?.value,
     'recomendaciones-check': getChipsValues('recom-chips'),
     'recomendaciones-libre': document.getElementById('recom-libre')?.value,
     autor: document.getElementById('autor')?.value,
@@ -3861,7 +3891,7 @@ function construirContenidoReterm(data, opts) {
       ];
     }
 
-  return { coordStr, fechaStr, fechaInspStr, estado, region, regionCorta, tipo, desencadenanteTxt, litologiaTxt, tipoLaderaTxt, localidad, antecedente, nReterm, anio, tituloReporte, areaVol, areaNum, volNum, morfoVals, morfoTexto, obsPartes, concluParts, recomList };
+  return { coordStr, fechaStr, fechaInspStr, estado, region, regionCorta, tipo, desencadenanteTxt, litologiaTxt, tipoLaderaTxt, localidad, antecedente, nReterm, anio, tituloReporte, areaVol, areaNum, volNum, morfoVals, morfoTexto, obsPartes, concluParts, recomList, fuenteUrl: data['fuente-url'] || null };
 }
 
 // ===== Figura satelital de conjunto (varios puntos GPS rotulados) =====
@@ -4030,6 +4060,7 @@ async function generateRETERMCombinado(records, nReterm, ret) {
     const estadoLines = campoColapsable((rec, C) => C.estado) || ['No evaluado'];
     const areaLines = campoPorRM((rec, C) => C.areaVol);
     const antecLines = campoColapsable((rec, C) => C.antecedente && C.antecedente !== '—' ? C.antecedente : null) || ['—'];
+    const fuenteLines = campoColapsable((rec, C) => C.fuenteUrl);   // null si ninguna RM tiene fuente-url
 
     let rc = 3; const imgRels = []; const mediaFiles = [];
 
@@ -4061,6 +4092,7 @@ async function generateRETERMCombinado(records, nReterm, ret) {
       ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', areaLines],
       ['ANTECEDENTE', antecLines],
     ];
+    if (fuenteLines) idFieldsMulti.push(['FUENTE', fuenteLines]);
     let idRows = '';
     idFieldsMulti.forEach((f, i) => {
       const right = i === 0 ? wC(figCell, { w: RW, vmerge: 'restart', valign: 'center' }) : wC(wP(''), { w: RW, vmerge: 'continue' });
@@ -4233,7 +4265,7 @@ async function generateRETERM(record, ret) {
     const _C = construirContenidoReterm(data, { tasaHorariaEvento });
     const { coordStr, fechaStr, fechaInspStr, estado, region, regionCorta, tipo,
       desencadenanteTxt, litologiaTxt, tipoLaderaTxt, localidad, antecedente, nReterm, anio,
-      tituloReporte, areaVol, areaNum, volNum, morfoVals, morfoTexto, obsPartes, concluParts, recomList } = _C;
+      tituloReporte, areaVol, areaNum, volNum, morfoVals, morfoTexto, obsPartes, concluParts, recomList, fuenteUrl } = _C;
 
     // (el registro fotográfico se arma directamente en OOXML más abajo)
 
@@ -4294,6 +4326,7 @@ async function generateRETERM(record, ret) {
       ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', areaVol],
       ['ANTECEDENTE', antecedente],
     ];
+    if (fuenteUrl) idFields.push(['FUENTE', fuenteUrl]);
     if (data.id) idFields.push(['ID RM', data.id]);
     let idRows = '';
     idFields.forEach((f, i) => {
@@ -4414,11 +4447,13 @@ async function generateRETERM(record, ret) {
 // =====================
 // ALMACENAMIENTO DE RMs (IndexedDB) + flujo multi-RM
 // =====================
-const RM_DB = 'catastro-rm', RM_STORE = 'rms';
+const RM_DB = 'catastro-rm', RM_STORE = 'rms', RM_GAB_STORE = 'rms_gabinete';
 let savedRMsCache = [];
 const rmSelCombinado = new Set();   // keys de RM marcadas para el RETERM compilado
+let rmColeccionActiva = 'terreno';  // pestaña activa en "RMs guardadas": 'terreno' | 'gabinete'
+function storeActivo() { return rmColeccionActiva === 'gabinete' ? RM_GAB_STORE : RM_STORE; }
 
-const RM_DB_VERSION = 3, LINEA_STORE = 'lineas', JORNADA_STORE = 'jornadas';
+const RM_DB_VERSION = 4, LINEA_STORE = 'lineas', JORNADA_STORE = 'jornadas';
 let _dbPromise = null;
 function rmDbOpen() {
   if (_dbPromise) return _dbPromise;
@@ -4428,6 +4463,7 @@ function rmDbOpen() {
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(RM_STORE)) db.createObjectStore(RM_STORE, { keyPath: 'key', autoIncrement: true });
+      if (!db.objectStoreNames.contains(RM_GAB_STORE)) db.createObjectStore(RM_GAB_STORE, { keyPath: 'key', autoIncrement: true });
       if (!db.objectStoreNames.contains(LINEA_STORE)) db.createObjectStore(LINEA_STORE, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(JORNADA_STORE)) db.createObjectStore(JORNADA_STORE, { keyPath: 'id' });
     };
@@ -4487,28 +4523,28 @@ async function _fotosDesdeGuardado(fotos) {
   for (const f of fotos) out.push({ desc: f.desc, azimuth: f.azimuth, blobDataUrl: f.blobDataUrl || null, blob: f.blobDataUrl ? await _dataURLToBlob(f.blobDataUrl) : (f.blob || null) });
   return out;
 }
-async function rmGetAll() {
+async function rmGetAll(store = RM_STORE) {
   const db = await rmDbOpen();
   const rows = await new Promise((resolve, reject) => {
-    const req = db.transaction(RM_STORE, 'readonly').objectStore(RM_STORE).getAll();
+    const req = db.transaction(store, 'readonly').objectStore(store).getAll();
     req.onsuccess = () => resolve((req.result || []).sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0)));
     req.onerror = () => reject(req.error);
   });
   return Promise.all(rows.map(async r => ({ ...r, fotos: await _fotosDesdeGuardado(r.fotos) })));
 }
-async function rmAdd(rec) {
+async function rmAdd(rec, store = RM_STORE) {
   const db = await rmDbOpen();
   const paraGuardar = { ...rec, fotos: await _fotosParaGuardar(rec.fotos) };
   return new Promise((resolve, reject) => {
-    const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).add(paraGuardar);
+    const req = db.transaction(store, 'readwrite').objectStore(store).add(paraGuardar);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
-async function rmDelete(key) {
+async function rmDelete(key, store = RM_STORE) {
   const db = await rmDbOpen();
   return new Promise((resolve, reject) => {
-    const req = db.transaction(RM_STORE, 'readwrite').objectStore(RM_STORE).delete(key);
+    const req = db.transaction(store, 'readwrite').objectStore(store).delete(key);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
@@ -4575,9 +4611,13 @@ async function generateRMId() {
   return `${prefix}-${String(max + 1).padStart(2, '0')}`;
 }
 async function refreshRMsCount() {
-  savedRMsCache = await rmGetAll();
+  // El contador del botón principal (Paso 1) muestra Terreno — es el indicador "tu trabajo de
+  // campo", independiente de qué pestaña esté activa dentro del modal "RMs guardadas".
+  const [terreno, gabinete] = await Promise.all([rmGetAll(RM_STORE), rmGetAll(RM_GAB_STORE)]);
   const el = document.getElementById('rms-count');
-  if (el) el.textContent = savedRMsCache.length;
+  if (el) el.textContent = terreno.length;
+  const et = document.getElementById('rms-count-terreno'); if (et) et.textContent = terreno.length;
+  const eg = document.getElementById('rms-count-gabinete'); if (eg) eg.textContent = gabinete.length;
 }
 
 // Helpers para fijar/limpiar toggles y chips
@@ -4735,18 +4775,22 @@ async function generarYEntregarRM() {
   if (!markerPlaced || !getCoords()) return;   // reguarda defensivo
   try {
     const rec = await buildRMRecord();
+    const esGabinete = rec.data.origen === 'gabinete';
+    const store = esGabinete ? RM_GAB_STORE : RM_STORE;
     // Upsert por ID: si ya existe una RM con este id (reintento tras un error de generación,
     // o una RM guardada que se abrió para editar), se reemplaza en vez de duplicarse.
     // ORDEN IMPORTANTE: primero agregar la nueva y SOLO SI eso resultó, borrar las previas.
     // Al revés (borrar→agregar), un fallo de rmAdd (p.ej. IndexedDB en Safari iOS) perdía
     // también la versión anterior guardada.
-    const previas = (await rmGetAll()).filter(r => r.id === rec.id);
-    const nuevaKey = await rmAdd(rec);
-    for (const p of previas) { if (p.key !== nuevaKey) await rmDelete(p.key); }
+    const previas = (await rmGetAll(store)).filter(r => r.id === rec.id);
+    const nuevaKey = await rmAdd(rec, store);
+    for (const p of previas) { if (p.key !== nuevaKey) await rmDelete(p.key, store); }
     await refreshRMsCount();
-    const word = await generateRETERM(rec, true);
+    // RETERM (Word) es exclusivo de Terreno: una RM de Gabinete es preliminar y sin
+    // verificación en campo, no corresponde emitirle un informe institucional todavía.
+    const word = esGabinete ? null : await generateRETERM(rec, true);
     const kmz = await generateKMZ(rec, true);
-    const json = { blob: await buildBackupBlob(), filename: backupFilename(), mime: 'application/json' };
+    const json = { blob: await buildBackupBlob(store), filename: backupFilename(store), mime: 'application/json' };
     _archivosRM = [word, kmz, json].filter(Boolean);
     resetFormForNewRM();
     abrirEntregaModal(rec.id);
@@ -4828,6 +4872,7 @@ function resetFormForNewRM() {
       else el.value = '';
     });
   setToggle('zona-toggle', 'generacion');
+  setToggle('origen-toggle', 'terreno');
   clearToggle('amenaza-toggle');
   clearToggle('plasticidad-toggle');
   ['granulometria-chips', 'componentes-chips', 'geometria-ladera-chips', 'estructuras-chips', 'infra-chips', 'recom-chips'].forEach(clearChips);
@@ -4878,6 +4923,7 @@ function populateForm(rec) {
     }
   });
   setToggle('zona-toggle', d.zona || 'generacion');
+  setToggle('origen-toggle', d.origen || 'terreno');
   d.amenaza ? setToggle('amenaza-toggle', d.amenaza) : clearToggle('amenaza-toggle');
   d.plasticidad ? setToggle('plasticidad-toggle', d.plasticidad) : clearToggle('plasticidad-toggle');
   setChips('granulometria-chips', d.granulometria);
@@ -4888,7 +4934,7 @@ function populateForm(rec) {
   setChips('recom-chips', d['recomendaciones-check']);
   setEl('rm-id', d.id);
   setEl('recom-libre', d['recomendaciones-libre']);
-  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso','fecha-ingreso-iso']
+  ['fecha-inicio','fecha-fin','hora-inicio','hora-fin','desencadenante','lluvia-24h','lluvia-48h','lluvia-7d','tamano-bloques','prop-bloques','humedad','sorting','tipo-ladera','estado-escarpe','litologia','suelo-adicional','grado-alteracion','orientacion','vegetacion','lluvia-previa','sismo-previo','sismo-magnitud','antropico','personas-afectadas','num-personas','dist-vivienda','efectos','otros','fuente-url','autor','prof-iniciales','region','localidad','n-antecedente','hora-ingreso','fecha-ingreso-iso']
     .forEach(id => setEl(id, d[id]));
   setEl('n-reterm', d['n-reterm'] || 'XX');
   { const lf = document.getElementById('lluvia-fuente'); if (lf && d['lluvia-fuente']) lf.textContent = d['lluvia-fuente']; }
@@ -4940,7 +4986,21 @@ function populateForm(rec) {
 }
 
 // ----- Modal de lista de RMs -----
-function openRMsModal() { rmSelCombinado.clear(); renderRMsList(); renderJornadas(); document.getElementById('rms-modal').style.display = 'flex'; }
+function openRMsModal() {
+  rmSelCombinado.clear();
+  rmColeccionActiva = 'terreno';
+  setToggle('rms-coleccion-toggle', 'terreno');
+  aplicarVisibilidadColeccion();
+  renderRMsList();
+  renderJornadas();
+  document.getElementById('rms-modal').style.display = 'flex';
+}
+// Controles exclusivos de Terreno (RETERM combinado + sus casillas de selección): nunca deben
+// quedar visibles ni operables mientras la pestaña Gabinete esté activa.
+function aplicarVisibilidadColeccion() {
+  const wrap = document.getElementById('reterm-combinado-wrap');
+  if (wrap) wrap.style.display = rmColeccionActiva === 'gabinete' ? 'none' : '';
+}
 function closeRMsModal() { document.getElementById('rms-modal').style.display = 'none'; }
 
 // ---- Jornadas (cerrar el día): archivar las RM del día y empezar de cero ----
@@ -5037,10 +5097,12 @@ async function renderJornadas() {
 
 async function renderRMsList() {
   const list = document.getElementById('rms-list');
-  savedRMsCache = await rmGetAll();
-  document.getElementById('rms-count').textContent = savedRMsCache.length;
+  const esGabinete = rmColeccionActiva === 'gabinete';
+  savedRMsCache = await rmGetAll(storeActivo());
+  await refreshRMsCount();
   if (!savedRMsCache.length) {
-    list.innerHTML = '<p style="color:#6b7280;text-align:center;padding:16px">No hay RMs guardadas aún.</p>';
+    list.innerHTML = `<p style="color:#6b7280;text-align:center;padding:16px">No hay RMs de ${esGabinete ? 'Gabinete' : 'Terreno'} guardadas aún.</p>`;
+    if (!esGabinete) actualizarBtnCombinado();
     return;
   }
   const bs = 'padding:8px 10px;border-radius:8px;border:1px solid #9ca3af;background:#f3f4f6;color:#111;cursor:pointer;font-size:0.82rem';
@@ -5048,34 +5110,48 @@ async function renderRMsList() {
     const s = r.summary || {};
     const titulo = s.localidad || r.id || 'RM sin nombre';
     const sub = [s.tipo, s.fecha].filter(Boolean).map(escapeHtmlJS).join(' · ') || '—';
-    // marca las que aún no valida el geólogo (informe preliminar); las confirmadas van con ✓
-    const estado = (r.data && r.data.confirmada)
+    // marca las que aún no valida el geólogo (informe preliminar); las confirmadas van con ✓ —
+    // no aplica a Gabinete (no genera RETERM, no hay banner que confirmar).
+    const estado = esGabinete ? '' : ((r.data && r.data.confirmada)
       ? '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#166534;background:#dcfce7;border:1px solid #bbf7d0;border-radius:5px;padding:1px 6px;margin-left:6px">✓ Confirmada</span>'
-      : '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#b71c1c;background:#fdecea;border:1px solid #f5c2c0;border-radius:5px;padding:1px 6px;margin-left:6px">Preliminar</span>';
-    return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;word-break:break-word;color:#111">
+      : '<span style="display:inline-block;font-size:0.66rem;font-weight:700;color:#b71c1c;background:#fdecea;border:1px solid #f5c2c0;border-radius:5px;padding:1px 6px;margin-left:6px">Preliminar</span>');
+    const fuente = (r.data && r.data['fuente-url'])
+      ? `<div style="font-size:0.75rem;margin-top:2px"><a href="${escapeHtmlJS(r.data['fuente-url']).replace(/"/g, '&quot;')}" target="_blank" rel="noopener" style="color:#1d4ed8">🔗 Fuente</a></div>` : '';
+    // Gabinete: NO se ofrece "Abrir" (no se despliega la ficha al solo ver la lista) ni "Word"
+    // (RETERM es exclusivo de Terreno) — la única forma de poblar el formulario es copiando.
+    const cabecera = esGabinete
+      ? `<div style="font-weight:600;word-break:break-word;color:#111">${escapeHtmlJS(titulo)}${estado}</div>`
+      : `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;word-break:break-word;color:#111">
         <input type="checkbox" class="rm-sel" data-key="${r.key}" ${rmSelCombinado.has(r.key) ? 'checked' : ''} style="width:18px;height:18px;flex:none">
         <span>${escapeHtmlJS(titulo)}${estado}</span>
-      </label>
+      </label>`;
+    const botones = esGabinete
+      ? `<button type="button" data-act="copiar" data-key="${r.key}" style="${bs};color:#1d4ed8;border-color:#93c5fd">→ Copiar a Terreno</button>
+         <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
+         <button type="button" data-act="del" data-key="${r.key}" style="${bs};color:#e63946;border-color:#fecaca">🗑️</button>`
+      : `<button type="button" data-act="abrir" data-key="${r.key}" style="${bs}">✏️ Abrir</button>
+         <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
+         <button type="button" data-act="pdf" data-key="${r.key}" style="${bs}">📄 Word</button>
+         <button type="button" data-act="del" data-key="${r.key}" style="${bs};color:#e63946;border-color:#fecaca">🗑️</button>`;
+    return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:8px">
+      ${cabecera}
       <div style="font-size:0.82rem;color:#4b5563;margin:2px 0">${sub}</div>
       <div style="font-size:0.7rem;color:#6b7280">${escapeHtmlJS(r.id)} · guardada ${new Date(r.savedAt).toLocaleDateString('es-CL')}</div>
-      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
-        <button type="button" data-act="abrir" data-key="${r.key}" style="${bs}">✏️ Abrir</button>
-        <button type="button" data-act="kmz" data-key="${r.key}" style="${bs}">⬇️ KMZ</button>
-        <button type="button" data-act="pdf" data-key="${r.key}" style="${bs}">📄 Word</button>
-        <button type="button" data-act="del" data-key="${r.key}" style="${bs};color:#e63946;border-color:#fecaca">🗑️</button>
-      </div>
+      ${fuente}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${botones}</div>
     </div>`;
   }).join('');
   list.querySelectorAll('button[data-act]').forEach(btn =>
     btn.addEventListener('click', () => handleRMAction(btn.dataset.act, Number(btn.dataset.key))));
-  list.querySelectorAll('input.rm-sel').forEach(cb =>
-    cb.addEventListener('change', () => {
-      const k = Number(cb.dataset.key);
-      if (cb.checked) rmSelCombinado.add(k); else rmSelCombinado.delete(k);
-      actualizarBtnCombinado();
-    }));
-  actualizarBtnCombinado();
+  if (!esGabinete) {
+    list.querySelectorAll('input.rm-sel').forEach(cb =>
+      cb.addEventListener('change', () => {
+        const k = Number(cb.dataset.key);
+        if (cb.checked) rmSelCombinado.add(k); else rmSelCombinado.delete(k);
+        actualizarBtnCombinado();
+      }));
+    actualizarBtnCombinado();
+  }
 }
 
 function actualizarBtnCombinado() {
@@ -5106,16 +5182,29 @@ async function handleRMAction(act, key) {
   if (act === 'kmz') { closeRMsModal(); const f = await generateKMZ(rec, true); if (f) { _archivosRM = [f]; abrirEntregaModal(rec.id); } return; }
   if (act === 'pdf') { closeRMsModal(); const f = await generateRETERM(rec, true); if (f) { _archivosRM = [f]; abrirEntregaModal(rec.id); } return; }
   if (act === 'abrir') { closeRMsModal(); return populateForm(rec); }
+  if (act === 'copiar') return copiarGabineteATerreno(key);
   if (act === 'del' && confirm(`¿Eliminar la RM "${rec.id}"?`)) {
-    await rmDelete(key);
+    await rmDelete(key, storeActivo());
     await renderRMsList();
-    await refreshRMsCount();
   }
+}
+
+// Única acción que puebla la ficha desde una RM de Gabinete: es una COPIA (no un movimiento) y
+// siempre va hacia Terreno — no existe el camino inverso. El registro original en RM_GAB_STORE
+// no se toca; queda disponible para copiarlo de nuevo o eliminarlo aparte cuando ya no se necesite.
+async function copiarGabineteATerreno(key) {
+  const rec = savedRMsCache.find(r => r.key === key);
+  if (!rec) return;
+  closeRMsModal();
+  populateForm(rec);
+  setToggle('origen-toggle', 'terreno');   // el destino SIEMPRE es Terreno, aunque el origen diga 'gabinete'
+  document.getElementById('rm-id').value = await generateRMId();   // copia independiente: ID nuevo
+  showView('ficha');   // por si se invocó desde el mapa, no solo desde el modal "RMs guardadas"
 }
 
 // ----- KMZ combinado de todas las RMs del día -----
 async function generateCombinedKMZ() {
-  const all = await rmGetAll();
+  const all = await rmGetAll(storeActivo());
   if (!all.length) { alert('No hay RMs guardadas para exportar.'); return; }
   const loading = document.getElementById('loading'), msg = document.getElementById('loading-msg');
   loading.classList.add('open'); msg.textContent = 'Creando KMZ del día...';
@@ -5149,6 +5238,7 @@ async function generateCombinedKMZ() {
 <p><b>Fecha:</b> ${esc(d['fecha-inicio'] || '—')} &nbsp; <b>Desencadenante:</b> ${esc(campoTxt(d, 'desencadenante') || '—')}</p>
 <p><b>Estado:</b> ${esc(estado)}</p>
 <p><b>Coordenadas:</b> ${c.lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+${d['fuente-url'] ? `<p><b>Fuente:</b> <a href="${esc(d['fuente-url']).replace(/"/g, '&quot;')}">${esc(d['fuente-url'])}</a></p>` : ''}
 ${fotosHtml}
 </div>]]>`;
       placemarks.push(`<Placemark>
@@ -5234,8 +5324,12 @@ function iconoRM(rec) {
   const d = rec.data || {}; const col = ZONA_CSS[d.zona] || '#e63946';
   let sym = ''; (d['estructuras-dip'] || []).forEach(e => { sym += svgEstructura(e, 24, 24); });
   // Triángulo (símbolo de peligro) — forma distinta a los círculos de estaciones y a los cuadrados del pronóstico.
+  // Gabinete: contorno discontinuo (en vez de sólido) para distinguir a simple vista un punto
+  // preliminar/no verificado en terreno de uno con visita real — mismo color por zona.
+  const esGabinete = d.origen === 'gabinete';
+  const strokeDash = esGabinete ? ' stroke-dasharray="3,2"' : '';
   const html = `<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">`
-    + `<path d="M24 15 L33 31 L15 31 Z" fill="${col}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>${sym}</svg>`;
+    + `<path d="M24 15 L33 31 L15 31 Z" fill="${col}" stroke="#fff" stroke-width="2" stroke-linejoin="round"${strokeDash}/>${sym}</svg>`;
   return L.divIcon({ html, className: 'rm-divicon', iconSize: [48, 48], iconAnchor: [24, 24] });
 }
 
@@ -5323,7 +5417,9 @@ function initMapaFull() {
 async function renderMapaFull() {
   if (!mapaFull) return;
   mapaFullMarkers.clearLayers(); mapaFullLines.clearLayers();
-  const all = await rmGetAll();
+  // El mapa siempre muestra AMBAS colecciones juntas (Terreno + Gabinete) — es solo ubicación
+  // geográfica, no un informe, así que no aplica la restricción de "solo Terreno" de RETERM.
+  const all = [...(await rmGetAll(RM_STORE)), ...(await rmGetAll(RM_GAB_STORE))];
   const pts = [];
   all.forEach(r => {
     const c = r.data && r.data.coords; if (!c) return;
@@ -5349,8 +5445,20 @@ async function renderMapaFull() {
   if (pts.length && !dibujando) mapaFull.fitBounds(pts, { padding: [40, 40], maxZoom: 16 });
 }
 async function abrirRMDesdeMapa(rec) {
-  const full = await rmGetAll();
+  const esGabinete = (rec.data && rec.data.origen) === 'gabinete';
+  const store = esGabinete ? RM_GAB_STORE : RM_STORE;
+  const full = await rmGetAll(store);
   const match = full.find(r => r.key === rec.key) || rec;
+  if (esGabinete) {
+    // Mismo criterio que en la lista "RMs guardadas": un punto de Gabinete no despliega la
+    // ficha solo por tocarlo en el mapa — la única vía para poblar el formulario es copiarlo.
+    const nombre = (match.summary && match.summary.localidad) || match.id || 'esta RM';
+    if (confirm(`RM de Gabinete: "${nombre}".\n\n¿Copiar a Terreno para completarla y generar su informe?`)) {
+      savedRMsCache = full;
+      await copiarGabineteATerreno(match.key);
+    }
+    return;
+  }
   populateForm(match);
   showView('ficha');
 }
@@ -7148,37 +7256,39 @@ async function serializeRMs(rms) {
   }
   return out;
 }
-// Reinserta RM serializadas en el store activo. skipDup omite las de igual id.
+// Reinserta RM serializadas en el store indicado. skipDup omite las de igual id (dentro de ESE store).
 // Las fotos van directo como blobDataUrl (el formato que persiste rmAdd): sin conversión a Blob.
-async function restoreRMs(rmsSer, skipDup) {
-  const existentes = skipDup ? new Set((await rmGetAll()).map(r => r.id)) : null;
+async function restoreRMs(rmsSer, skipDup, store = RM_STORE) {
+  const existentes = skipDup ? new Set((await rmGetAll(store)).map(r => r.id)) : null;
   let nuevas = 0, omitidas = 0;
   for (const r of (rmsSer || [])) {
     if (existentes && r.id && existentes.has(r.id)) { omitidas++; continue; }
     const fotos = (r.fotos || []).map(f => ({ desc: f.desc || '', azimuth: f.azimuth ?? null, blobDataUrl: f.blobDataUrl || null }));
     const rec = { ...r, fotos };
     delete rec.key;   // deja que IndexedDB asigne una key nueva
-    await rmAdd(rec);
+    await rmAdd(rec, store);
     nuevas++;
   }
   return { nuevas, omitidas };
 }
-async function buildBackupBlob() {
-  const rms = await serializeRMs(await rmGetAll());
+async function buildBackupBlob(store = RM_STORE) {
+  const rms = await serializeRMs(await rmGetAll(store));
   const lineas = await lineaGetAll();
-  const backup = { app: 'catastro-remociones', formato: 1, exportado: new Date().toISOString(), rms, lineas };
+  const coleccion = store === RM_GAB_STORE ? 'gabinete' : 'terreno';
+  const backup = { app: 'catastro-remociones', formato: 1, coleccion, exportado: new Date().toISOString(), rms, lineas };
   return new Blob([JSON.stringify(backup)], { type: 'application/json' });
 }
 
 // Nombre del respaldo con fecha, hora e iniciales del profesional (trazabilidad de quién/cuándo).
-function backupFilename() {
+function backupFilename(store = RM_STORE) {
   const hora = new Date().toTimeString().slice(0, 5).replace(':', '');
   const ini = getIniciales() || 'SIN-INI';
-  return `respaldo_remociones_${todayStr()}_${hora}_${ini}.json`;
+  const sufijo = store === RM_GAB_STORE ? '_gabinete' : '_terreno';
+  return `respaldo_remociones${sufijo}_${todayStr()}_${hora}_${ini}.json`;
 }
 
-async function exportBackup() {
-  const filename = backupFilename();
+async function exportBackup(store = RM_STORE) {
+  const filename = backupFilename(store);
   // 1) En PC: pedir DÓNDE guardar ahora (con el gesto del click, antes del trabajo async)
   const handle = await pickSaveHandle(filename, 'application/json', '.json');
   if (handle === 'cancel') return;
@@ -7186,7 +7296,7 @@ async function exportBackup() {
   const loading = document.getElementById('loading'), lmsg = document.getElementById('loading-msg');
   loading.classList.add('open'); lmsg.textContent = 'Preparando respaldo...';
   try {
-    const blob = await buildBackupBlob();
+    const blob = await buildBackupBlob(store);
     if (handle) {
       await writeHandle(handle, blob);
       loading.classList.remove('open');
@@ -7208,11 +7318,16 @@ async function importBackup(file) {
     const text = await file.text();
     const backup = JSON.parse(text);
     if (!backup || !Array.isArray(backup.rms)) throw new Error('El archivo no es un respaldo válido.');
-    const { nuevas, omitidas } = await restoreRMs(backup.rms, true);
+    // Autodetección de colección: un respaldo exportado como Gabinete se reconoce solo y
+    // se importa siempre al store de Gabinete, sin importar qué pestaña esté activa —
+    // si no trae 'coleccion' (respaldos antiguos) se asume Terreno (comportamiento previo).
+    const store = backup.coleccion === 'gabinete' ? RM_GAB_STORE : RM_STORE;
+    const { nuevas, omitidas } = await restoreRMs(backup.rms, true, store);
     for (const l of (backup.lineas || [])) { try { await lineaPut(l); } catch {} }
     await refreshRMsCount();
     if (typeof renderRMsList === 'function') renderRMsList();
-    alert(`Respaldo importado: ${nuevas} RM nuevas${omitidas ? `, ${omitidas} ya existían (omitidas)` : ''}. Abre el Mapa para verlas.`);
+    const nombreColeccion = store === RM_GAB_STORE ? 'Gabinete' : 'Terreno';
+    alert(`Respaldo importado en ${nombreColeccion}: ${nuevas} RM nuevas${omitidas ? `, ${omitidas} ya existían (omitidas)` : ''}.`);
   } catch (e) {
     alert('No se pudo importar el respaldo: ' + e.message); console.error(e);
   } finally { loading.classList.remove('open'); }
@@ -7220,8 +7335,15 @@ async function importBackup(file) {
 
 // ----- Wiring -----
 document.getElementById('btn-ver-rms').addEventListener('click', openRMsModal);
-document.getElementById('btn-export-backup').addEventListener('click', exportBackup);
+document.getElementById('btn-export-backup').addEventListener('click', () => exportBackup(storeActivo()));
 document.getElementById('btn-import-backup').addEventListener('click', () => document.getElementById('input-backup').click());
+document.querySelectorAll('#rms-coleccion-toggle .toggle-btn').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('#rms-coleccion-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  rmColeccionActiva = btn.dataset.val;
+  aplicarVisibilidadColeccion();
+  renderRMsList();
+}));
 document.getElementById('input-backup').addEventListener('change', e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; });
 document.getElementById('rms-close').addEventListener('click', closeRMsModal);
 document.getElementById('rms-modal').addEventListener('click', e => { if (e.target.id === 'rms-modal') closeRMsModal(); });
