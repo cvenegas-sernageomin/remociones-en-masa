@@ -997,7 +997,7 @@ body.map-mode #nav-buttons { display: none !important; }
       <button type="button" id="btn-import-backup" style="flex:1;padding:10px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:8px;color:#111;cursor:pointer;font-size:0.85rem">📂 Abrir respaldo</button>
       <input type="file" id="input-backup" accept=".json,application/json" style="display:none">
     </div>
-    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas de la colección activa (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas cuando quieras — reconoce solo si es de Terreno o Gabinete.</p>
+    <p style="font-size:0.72rem;color:#6b7280;margin:0 0 12px 0">El respaldo es un archivo <b>.json</b> con todas las RM y líneas de la colección activa (incluye fotos). En el PC puedes <b>elegir la carpeta</b> donde guardarlo; en el teléfono se abre <b>Compartir</b> para enviarlo a Drive, correo u otro equipo. Con «Abrir respaldo» lo recargas en la pestaña que tengas activa (Terreno o Gabinete) — cambia de pestaña antes de abrirlo si quieres que caiga en la otra colección.</p>
     <div id="rms-list"></div>
     <div style="border-top:1px solid #e5e7eb;margin-top:6px;padding-top:10px">
       <h4 style="margin:0 0 8px;font-size:0.95rem;color:#111">🗓️ Jornadas archivadas</h4>
@@ -1114,7 +1114,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v92';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v93';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -7318,16 +7318,18 @@ async function importBackup(file) {
     const text = await file.text();
     const backup = JSON.parse(text);
     if (!backup || !Array.isArray(backup.rms)) throw new Error('El archivo no es un respaldo válido.');
-    // Autodetección de colección: un respaldo exportado como Gabinete se reconoce solo y
-    // se importa siempre al store de Gabinete, sin importar qué pestaña esté activa —
-    // si no trae 'coleccion' (respaldos antiguos) se asume Terreno (comportamiento previo).
-    const store = backup.coleccion === 'gabinete' ? RM_GAB_STORE : RM_STORE;
+    // Importa a la pestaña ACTIVA (misma lógica que "Guardar respaldo"), no a la colección
+    // que declare el archivo — si el usuario está viendo Gabinete y abre un respaldo, espera
+    // que caiga en Gabinete, sea cual sea su origen. Solo se avisa si no coinciden.
+    const store = storeActivo();
+    const nombreColeccion = store === RM_GAB_STORE ? 'Gabinete' : 'Terreno';
+    const avisoOrigen = backup.coleccion && backup.coleccion !== rmColeccionActiva
+      ? ` (el archivo era de ${backup.coleccion === 'gabinete' ? 'Gabinete' : 'Terreno'}, se importó en ${nombreColeccion} porque esa es la pestaña activa)` : '';
     const { nuevas, omitidas } = await restoreRMs(backup.rms, true, store);
     for (const l of (backup.lineas || [])) { try { await lineaPut(l); } catch {} }
     await refreshRMsCount();
     if (typeof renderRMsList === 'function') renderRMsList();
-    const nombreColeccion = store === RM_GAB_STORE ? 'Gabinete' : 'Terreno';
-    alert(`Respaldo importado en ${nombreColeccion}: ${nuevas} RM nuevas${omitidas ? `, ${omitidas} ya existían (omitidas)` : ''}.`);
+    alert(`Respaldo importado en ${nombreColeccion}: ${nuevas} RM nuevas${omitidas ? `, ${omitidas} ya existían (omitidas)` : ''}.${avisoOrigen}`);
   } catch (e) {
     alert('No se pudo importar el respaldo: ' + e.message); console.error(e);
   } finally { loading.classList.remove('open'); }
