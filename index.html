@@ -1095,7 +1095,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v90';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v91';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -3965,12 +3965,17 @@ async function generateRETERMCombinado(records, nReterm, ret) {
   loading.classList.add('open'); lmsg.textContent = 'Generando RETERM compilado...';
   try {
     const coordDe = (d) => { const c = d && d.coords; if (!c || c.lat == null) return null; return { lat: c.lat, lng: c.lng != null ? c.lng : c.lon }; };
+    const rmLbl = (i) => 'RM-' + String(i + 1).padStart(2, '0');
+    const rmLblEsp = (i) => 'RM ' + String(i + 1).padStart(2, '0');   // sin guion, como en el informe institucional de referencia
+
+    // Contenido por RM: reutiliza construirContenidoReterm (misma prosa institucional del informe individual)
+    const Cs = records.map(rec => construirContenidoReterm(rec.data, {}));
 
     // Puntos GPS (rotulados RM-01, RM-02…) para la figura de conjunto
     const puntos = [];
     records.forEach((rec, i) => {
       const p = coordDe(rec.data);
-      if (p) puntos.push({ lat: p.lat, lng: p.lng, label: 'RM-' + String(i + 1).padStart(2, '0') });
+      if (p) puntos.push({ lat: p.lat, lng: p.lng, label: rmLbl(i) });
     });
     const figConjunto = puntos.length ? await capturarFiguraACombinada(puntos) : null;
 
@@ -3979,71 +3984,102 @@ async function generateRETERMCombinado(records, nReterm, ret) {
     const regionTit = regionesSet.size === 1 ? [...regionesSet][0].toUpperCase() : 'VARIAS REGIONES';
     const anio = (records[0].data['fecha-inicio'] || new Date().toISOString()).slice(0, 4);
     const nn = String(nReterm || 'XX').padStart(2, '0');
-    const tituloReporte = `REPORTE TÉCNICO DE REMOCIÓN EN MASA COMPILADO ${regionTit} ${nn}/${anio}`;
+    const tituloReporte = `REPORTE TÉCNICO DE REMOCIÓN EN MASA ${regionTit} ${nn}/${anio}`;
     const algunaPrelim = records.some(r => !(r.data && r.data.confirmada));
 
     const LW = 5160, RW = 5640, FULL = 10800;
     const secRow = (t) => wTr(wC(wP(wR(t, { b: true }), { align: 'center' }), { w: FULL, span: 2 }));
     const fullRow = (c) => wTr(wC(c, { w: FULL, span: 2 }));
-    const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+    // Campo del encabezado que puede colapsar a 1 línea (si todas las RM coinciden) o
+    // desplegarse en varias líneas "RM 0N: valor" (si difieren) — igual al patrón del
+    // informe institucional de referencia (ej. TIPO PRINCIPAL, ÁREA Y VOLUMEN, COORDENADAS).
+    function campoColapsable(getter) {
+      const vals = records.map((rec, i) => ({ i, v: getter(rec, Cs[i]) })).filter(x => x.v);
+      if (!vals.length) return null;
+      const uniq = new Set(vals.map(x => x.v));
+      if (uniq.size === 1) return [vals[0].v];
+      return vals.map(x => rmLblEsp(x.i) + ': ' + x.v);
+    }
+    // Campo que SIEMPRE se despliega una línea por RM (coordenadas, área/volumen: el dato
+    // propio de cada punto, aunque coincida por casualidad con el de otro).
+    function campoPorRM(getter) {
+      return records.map((rec, i) => rmLblEsp(i) + ': ' + (getter(rec, Cs[i]) || '—'));
+    }
+    // celda de tabla con 1ª línea "Label: valor" + líneas siguientes solo "valor"
+    function wFieldMulti(label, lines) {
+      if (!lines || !lines.length) return wField(label, 'No registrado');
+      let out = wField(label, lines[0]);
+      for (let i = 1; i < lines.length; i++) out += wP(wR(lines[i]));
+      return out;
+    }
+
+    const idenLines = campoColapsable((rec, C) => C.localidad !== '___' ? C.localidad : null);
+    const idenTxt = idenLines
+      ? (idenLines.length === 1 ? ['Remociones en masa en ' + idenLines[0]] : ['Remociones en masa en ' + records.length + ' sectores: ' + [...new Set(idenLines)].join(', ')])
+      : ['Remociones en masa'];
+    const tipoLines = campoColapsable((rec, C) => C.tipo) || ['—'];
+    const ubicLines = campoColapsable((rec, C) => {
+      const d = rec.data;
+      return [C.localidad !== '___' ? C.localidad : null, d.comuna ? 'Comuna de ' + d.comuna : null,
+        d.region ? 'Región de ' + (d.region || '').replace(/\s*\(.*\)/, '') : null].filter(Boolean).join(' — ') || null;
+    }) || ['—'];
+    const coordLines = campoPorRM((rec, C) => C.coordStr);
+    const diaLines = campoColapsable((rec, C) => C.fechaStr) || ['No registrado'];
+    const descLines = campoColapsable((rec, C) => C.desencadenanteTxt) || ['No registrado'];
+    const estadoLines = campoColapsable((rec, C) => C.estado) || ['No evaluado'];
+    const areaLines = campoPorRM((rec, C) => C.areaVol);
+    const antecLines = campoColapsable((rec, C) => C.antecedente && C.antecedente !== '—' ? C.antecedente : null) || ['—'];
 
     let rc = 3; const imgRels = []; const mediaFiles = [];
 
-    // --- Figura de conjunto (párrafos, no fila de tabla) ---
-    let figConjPara;
+    // --- Figura A de conjunto (dentro de la celda combinada del encabezado, igual que el informe individual) ---
+    let figCell;
     if (figConjunto) {
       const bytes = dataUrlToU8(figConjunto);
       const ext = /^data:image\/png/.test(figConjunto) ? 'png' : 'jpg';
       const d = await imgDims(figConjunto);
-      const cx = Math.round(6.6 * EMU_IN), cy = Math.round(cx * d.h / d.w);
+      const figCx = Math.round(3.7 * EMU_IN), figCy = Math.round(figCx * d.h / d.w);
       const rid = 'rId' + (++rc);
       imgRels.push('<Relationship Id="' + rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/figuraConjunto.' + ext + '"/>');
       mediaFiles.push({ name: 'word/media/figuraConjunto.' + ext, bytes });
-      figConjPara = wP(wImg(rid, cx, cy, 800, 'FiguraConjunto'), { align: 'center', after: 40 })
-        + wP(wR('Figura A. Ubicación de conjunto de las remociones en masa incluidas en este reporte (imagen satelital con grilla UTM; cada punto rotulado con su identificador RM-NN).', { i: true, sz: 17 }), { align: 'center', after: 120 });
+      figCell = wP(wImg(rid, figCx, figCy, 900, 'FiguraConjunto'), { align: 'center', after: 40 })
+        + wP(wR('Figura A. Ubicación de conjunto de las remociones en masa incluidas en este reporte (imagen satelital con grilla UTM; cada punto rotulado con su identificador RM-NN).', { i: true, sz: 17 }), { align: 'center' });
     } else {
-      figConjPara = wP(wR('Figura A: sin imagen satelital (ninguna RM con coordenadas, o sin conexión al generar).', { i: true, color: '999999', sz: 18 }), { align: 'center', after: 120 });
+      figCell = wP(wR('Figura A: sin imagen satelital (ninguna RM con coordenadas, o sin conexión al generar).', { i: true, color: '999999', sz: 18 }), { align: 'center' });
     }
 
-    // --- Tabla resumen (una fila por RM) ---
-    let resumenRows = wTr(
-      wC(wP(wR('N°', { b: true })), { w: 700 })
-      + wC(wP(wR('ID RM', { b: true })), { w: 2200 })
-      + wC(wP(wR('Localidad / Comuna', { b: true })), { w: 3400 })
-      + wC(wP(wR('Tipo', { b: true })), { w: 2400 })
-      + wC(wP(wR('Coordenadas UTM', { b: true })), { w: 2100 }));
-    records.forEach((rec, i) => {
-      const d = rec.data;
-      const p = coordDe(d);
-      let coordStr = 'Sin coordenadas';
-      if (p) { const u = latLonToUTM(p.lat, p.lng); coordStr = u.E.toLocaleString() + ' E / ' + u.N.toLocaleString() + ' ' + (p.lat < 0 ? 'S' : 'N') + ' (' + u.zone + ')'; }
-      const loc = [d.localidad, d.comuna ? 'comuna de ' + d.comuna : null].filter(Boolean).join(' — ') || '—';
-      const tipo = campoTxt(d, 'tipo-movimiento') || 'remoción en masa';
-      resumenRows += wTr(
-        wC(wP(wR('RM-' + String(i + 1).padStart(2, '0'), { b: true })), { w: 700 })
-        + wC(wP(wR(rec.id || '—')), { w: 2200 })
-        + wC(wP(wR(loc)), { w: 3400 })
-        + wC(wP(wR(tipo)), { w: 2400 })
-        + wC(wP(wR(coordStr)), { w: 2100 }));
+    // --- Encabezado de identificación (una sola tabla, como el informe individual) ---
+    const idFieldsMulti = [
+      ['IDENTIFICACIÓN', idenTxt],
+      ['TIPO PRINCIPAL', tipoLines],
+      ['UBICACIÓN', ubicLines],
+      ['COORDENADAS (UTM WGS84)', coordLines],
+      ['DÍA EVENTO', diaLines],
+      ['DESENCADENANTE', descLines],
+      ['ESTADO', estadoLines],
+      ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', areaLines],
+      ['ANTECEDENTE', antecLines],
+    ];
+    let idRows = '';
+    idFieldsMulti.forEach((f, i) => {
+      const right = i === 0 ? wC(figCell, { w: RW, vmerge: 'restart', valign: 'center' }) : wC(wP(''), { w: RW, vmerge: 'continue' });
+      idRows += wTr(wC(wFieldMulti(f[0], f[1]), { w: LW }) + right);
     });
-    const resumenTabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0"/></w:tblPr>'
-      + '<w:tblGrid><w:gridCol w:w="700"/><w:gridCol w:w="2200"/><w:gridCol w:w="3400"/><w:gridCol w:w="2400"/><w:gridCol w:w="2100"/></w:tblGrid>'
-      + resumenRows + '</w:tbl>';
 
-    // --- Una sección por RM ---
+    // --- Insumos (una sola fila, unión de fotos de todas las RM) ---
+    const nFotosOk = records.reduce((n, r) => n + (r.fotos || []).filter(f => f.blob || f.blobDataUrl).length, 0);
+    const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
+
+    // --- Registro fotográfico (unificado, cada foto rotulada con su RM de origen) ---
+    let fotosRows = '';
     const refsUnion = new Map();
-    let seccionesXml = '';
     for (let i = 0; i < records.length; i++) {
-      const rec = records[i], data = rec.data;
+      const rec = records[i];
       const fotos = rec.fotos || [];
-      const rmLabel = 'RM-' + String(i + 1).padStart(2, '0');
-      const C = construirContenidoReterm(data, {});   // sin Figura B (tasaHorariaEvento null) en el compilado
-
-      // Fotos de esta RM → media + rels
       const b64Fotos = await Promise.all(fotos.map(f => f.blobDataUrl
         ? Promise.resolve(f.blobDataUrl)
         : (f.blob ? new Promise(res => { const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(f.blob); }) : Promise.resolve(null))));
-      let fotosRows = '';
       for (let k = 0; k < b64Fotos.length; k++) {
         if (!b64Fotos[k]) continue;
         const dd = await imgDims(b64Fotos[k]);
@@ -4058,57 +4094,34 @@ async function generateRETERMCombinado(records, nReterm, ret) {
         const fo = fotos[k] || {};
         const cap = ((fo.desc || '') + (fo.azimuth != null ? ' (azimut ' + fo.azimuth + '°N)' : '')).trim() || 'Fotografía de terreno.';
         fotosRows += fullRow(wP(wImg(rid, cx, cy, 2000 + i * 30 + k, 'Foto'), { align: 'center', after: 40 })
-          + wP(wR(rmLabel + ' — Fotografía ' + (k + 1) + '. ' + cap, { i: true, sz: 17 }), { align: 'center' }));
+          + wP(wR(rmLbl(i) + ' — Fotografía ' + (k + 1) + '. ' + cap, { i: true, sz: 17 }), { align: 'center' }));
       }
-
-      // Identificación (campos de texto, sin Figura A — la figura es de conjunto)
-      const ubic = [C.localidad !== '___' ? C.localidad : null, data.comuna ? 'Comuna de ' + data.comuna : null,
-        data.region ? 'Región de ' + (data.region || '').replace(/\s*\(.*\)/, '') : null].filter(Boolean).join(' — ') || '—';
-      const idFields = [
-        ['TIPO PRINCIPAL', C.tipo],
-        ['UBICACIÓN', ubic],
-        ['COORDENADAS (UTM WGS84)', C.coordStr],
-        ['DÍA EVENTO', C.fechaStr],
-        ['FECHA DE INSPECCIÓN', C.fechaInspStr || 'No registrada'],
-        ['DESENCADENANTE', C.desencadenanteTxt || 'No registrado'],
-        ['ESTADO', C.estado],
-        ['ÁREA Y VOLUMEN (ORDEN DE MAGNITUD)', C.areaVol],
-        ['ANTECEDENTE', C.antecedente],
-        ['ID RM', rec.id || '—'],
-      ];
-      let idRows = '';
-      idFields.forEach(f => { idRows += wTr(wC(wField(f[0], f[1]), { w: FULL, span: 2 })); });
-
-      const obsXml = C.obsPartes.map((p, k) => wP(wR((k + 1) + '. ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
-      const nFotosOk = fotos.filter(f => f.blob || f.blobDataUrl).length;
-      const insumos = 'Fotografías de terreno' + (nFotosOk ? ' (' + nFotosOk + ')' : '') + '; imágenes satelitales (Esri World Imagery / Google Earth); antecedentes e informes de SERNAGEOMIN.';
-      const concluXml = C.concluParts.map(p => wP(wR('• ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('')
-        + wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
-        + C.recomList.map(r => wP(wR('• ' + htmlToPlain(r)), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('');
-
-      referenciasOrdenadas(data.referencias).forEach(x => { if (!refsUnion.has(x.r)) refsUnion.set(x.r, x); });
-
-      const tabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>'
-        + '<w:tblGrid><w:gridCol w:w="' + LW + '"/><w:gridCol w:w="' + RW + '"/></w:tblGrid>'
-        + secRow(rmLabel + ' — Descripción de remoción en masa tipo ' + C.tipo + ' ocurrida el ' + C.fechaStr + (C.fechaInspStr ? ' — inspección en terreno del ' + C.fechaInspStr : ''))
-        + idRows
-        + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
-        + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
-        + secRow('Observaciones') + fullRow(obsXml)
-        + secRow('Conclusiones y recomendaciones') + fullRow(concluXml)
-        + '</w:tbl>';
-
-      const tituloRM = wP(wR('REMOCIÓN EN MASA N°' + (i + 1) + ' — ' + rmLabel + (C.localidad && C.localidad !== '___' ? ' — ' + C.localidad : ''),
-        { b: true, sz: 26, color: 'C00000' }), { align: 'left', after: 80 });
-      seccionesXml += (i > 0 ? pageBreak : '') + tituloRM + tabla;
+      referenciasOrdenadas(rec.data.referencias).forEach(x => { if (!refsUnion.has(x.r)) refsUnion.set(x.r, x); });
     }
 
-    // Referencias (unión deduplicada de todas las RM)
+    // --- Observaciones (única sección, subdividida por RM-01:/RM-02:… como en el informe de referencia) ---
+    let obsXml = '';
+    records.forEach((rec, i) => {
+      const C = Cs[i];
+      obsXml += wP(wR(rmLbl(i) + (C.localidad !== '___' ? ' — ' + C.localidad : '') + ':', { b: true }), { after: 40 })
+        + C.obsPartes.map((p, k) => wP(wR((k + 1) + '. ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
+    });
+
+    // --- Conclusiones por RM + recomendaciones combinadas (deduplicadas) ---
+    let concluXml = '';
+    const recomVistas = new Set(); const recomCombinadas = [];
+    records.forEach((rec, i) => {
+      const C = Cs[i];
+      concluXml += wP(wR(rmLbl(i) + ':', { b: true }), { after: 40 })
+        + C.concluParts.map(p => wP(wR('• ' + htmlToPlain(p)), { align: 'both', after: 80 })).join('');
+      C.recomList.forEach(r => { const key = r.trim().toLowerCase(); if (!recomVistas.has(key)) { recomVistas.add(key); recomCombinadas.push(r); } });
+    });
+    concluXml += wP(wR('Se recomienda lo siguiente:', { b: true }), { after: 60 })
+      + recomCombinadas.map((r, i) => wP(wR(String.fromCharCode(97 + (i % 26)) + '. ' + htmlToPlain(r)), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('');
+
+    // --- Referencias (unión deduplicada de todas las RM) ---
     const refsArr = [...refsUnion.values()];
-    const refsXml = refsArr.length
-      ? wP(wR('Referencias', { b: true }), { align: 'center', after: 60 })
-        + refsArr.map(x => wP(wR(x.r), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('')
-      : '';
+    const refsXml = refsArr.length ? refsArr.map(x => wP(wR(x.r), { align: 'both', after: 60, ind: { left: 360, hanging: 360 } })).join('') : '';
 
     const today = new Date().toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const iniciales = (records[0].data['prof-iniciales'] || getIniciales() || '___').toUpperCase();
@@ -4117,17 +4130,25 @@ async function generateRETERMCombinado(records, nReterm, ret) {
       ? wP(wR('INFORME PRELIMINAR — CONTIENE UNA O MÁS RM PENDIENTES DE REVISIÓN Y VALIDACIÓN PROFESIONAL', { b: true, color: 'C00000', sz: 20 }), { align: 'center', after: 120 })
       : '';
 
+    const descripcionRow = 'Descripción de remociones en masa'
+      + (tipoLines.length === 1 ? ' tipo ' + tipoLines[0] : ' (' + records.length + ' puntos)')
+      + (diaLines.length === 1 ? ' observadas el ' + diaLines[0] : ' observadas');
+
+    const tabla = '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="' + FULL + '" w:type="dxa"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr>'
+      + '<w:tblGrid><w:gridCol w:w="' + LW + '"/><w:gridCol w:w="' + RW + '"/></w:tblGrid>'
+      + secRow(descripcionRow)
+      + idRows
+      + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
+      + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
+      + secRow('Observaciones') + fullRow(obsXml)
+      + secRow('Conclusiones y recomendaciones') + fullRow(concluXml)
+      + (refsXml ? secRow('Referencias') + fullRow(refsXml) : '')
+      + '</w:tbl>';
+
     const docBody = wP(wR('SERVICIO NACIONAL DE GEOLOGÍA Y MINERÍA - SERNAGEOMIN'), { align: 'center' })
-      + wP(wR(tituloReporte, { b: true, u: true }), { align: 'center', after: 60 })
-      + wP(wR('Reporte compilado de ' + records.length + ' remociones en masa.', { i: true, sz: 18 }), { align: 'center', after: 120 })
+      + wP(wR(tituloReporte, { b: true, u: true }), { align: 'center', after: 120 })
       + bannerPrelim
-      + wP(wR('Ubicación de conjunto', { b: true }), { after: 60 })
-      + figConjPara
-      + wP(wR('Cuadro resumen de las remociones incluidas', { b: true }), { after: 60 })
-      + resumenTabla
-      + wP(wR(''), { after: 120 })
-      + seccionesXml
-      + refsXml
+      + tabla
       + wP(wR('Elaborado el ' + today + '/' + iniciales + '_UATEG', { b: true }), { align: 'right' });
 
     const sectPr = '<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/>'
