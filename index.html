@@ -952,7 +952,9 @@ body.map-mode #nav-buttons { display: none !important; }
         <span>He revisado los datos y <b>confirmo</b> esta ficha en terreno.</span>
       </label>
       <p style="font-size:0.76rem;color:#6b7280;margin:0 0 14px 30px">Si no la confirmas, el informe se emite marcado como <b>PRELIMINAR – generado automáticamente</b>, pendiente de tu validación.</p>
-      <button type="button" id="revision-generar" style="width:100%;padding:14px;margin-bottom:10px;background:#16a34a;border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">Generar informe</button>
+      <button type="button" id="revision-generar" style="width:100%;padding:14px;margin-bottom:10px;background:#16a34a;border:none;border-radius:10px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">Generar informe (Word + KMZ + JSON)</button>
+      <button type="button" id="revision-guardar-json" style="width:100%;padding:12px;margin-bottom:10px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:10px;color:#111;font-size:0.9rem;font-weight:600;cursor:pointer">💾 Guardar solo JSON y volver a ficha vacía</button>
+      <p style="font-size:0.72rem;color:#6b7280;margin:-4px 0 10px">Guarda la RM y descarga solo el respaldo, sin generar Word ni KMZ (más rápido en terreno). El Word y el KMZ se pueden generar después desde «RMs guardadas».</p>
       <button type="button" id="revision-cancelar" style="width:100%;padding:11px;background:#f3f4f6;border:1px solid #9ca3af;border-radius:10px;color:#111;font-size:0.95rem;font-weight:600;cursor:pointer">Volver a la ficha</button>
     </div>
   </div>
@@ -1114,7 +1116,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v93';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v94';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -4771,24 +4773,28 @@ async function saveCurrentRM() {
 }
 
 // Generación + entrega, disparada por el botón "Generar informe" del modal de revisión.
+// Upsert por ID en el store correspondiente al origen de la RM: si ya existe una RM con este id
+// (reintento tras un error de generación, o una RM guardada que se abrió para editar), se
+// reemplaza en vez de duplicarse. ORDEN IMPORTANTE: primero agregar la nueva y SOLO SI eso
+// resultó, borrar las previas. Al revés (borrar→agregar), un fallo de rmAdd (p.ej. IndexedDB en
+// Safari iOS) perdía también la versión anterior guardada. Devuelve el store usado.
+async function guardarRMEnStore(rec) {
+  const store = rec.data.origen === 'gabinete' ? RM_GAB_STORE : RM_STORE;
+  const previas = (await rmGetAll(store)).filter(r => r.id === rec.id);
+  const nuevaKey = await rmAdd(rec, store);
+  for (const p of previas) { if (p.key !== nuevaKey) await rmDelete(p.key, store); }
+  await refreshRMsCount();
+  return store;
+}
+
 async function generarYEntregarRM() {
   if (!markerPlaced || !getCoords()) return;   // reguarda defensivo
   try {
     const rec = await buildRMRecord();
-    const esGabinete = rec.data.origen === 'gabinete';
-    const store = esGabinete ? RM_GAB_STORE : RM_STORE;
-    // Upsert por ID: si ya existe una RM con este id (reintento tras un error de generación,
-    // o una RM guardada que se abrió para editar), se reemplaza en vez de duplicarse.
-    // ORDEN IMPORTANTE: primero agregar la nueva y SOLO SI eso resultó, borrar las previas.
-    // Al revés (borrar→agregar), un fallo de rmAdd (p.ej. IndexedDB en Safari iOS) perdía
-    // también la versión anterior guardada.
-    const previas = (await rmGetAll(store)).filter(r => r.id === rec.id);
-    const nuevaKey = await rmAdd(rec, store);
-    for (const p of previas) { if (p.key !== nuevaKey) await rmDelete(p.key, store); }
-    await refreshRMsCount();
+    const store = await guardarRMEnStore(rec);
     // RETERM (Word) es exclusivo de Terreno: una RM de Gabinete es preliminar y sin
     // verificación en campo, no corresponde emitirle un informe institucional todavía.
-    const word = esGabinete ? null : await generateRETERM(rec, true);
+    const word = store === RM_GAB_STORE ? null : await generateRETERM(rec, true);
     const kmz = await generateKMZ(rec, true);
     const json = { blob: await buildBackupBlob(store), filename: backupFilename(store), mime: 'application/json' };
     _archivosRM = [word, kmz, json].filter(Boolean);
@@ -4796,6 +4802,25 @@ async function generarYEntregarRM() {
     abrirEntregaModal(rec.id);
   } catch (e) {
     alert('No se pudo finalizar la RM: ' + e.message);
+    console.error(e);
+  }
+}
+
+// Guardado rápido: guarda la RM y solo entrega el respaldo JSON (sin Word ni KMZ, que son los
+// pasos más lentos: capturan gráfico de lluvia, arman OOXML, empaquetan fotos). Pensado para
+// terreno con poco tiempo/señal — el Word y el KMZ se generan después, a demanda, desde el botón
+// por-RM en "RMs guardadas" (ya reutilizan la Figura A que quedó capturada en el registro).
+async function guardarSoloJSON() {
+  if (!markerPlaced || !getCoords()) return;   // reguarda defensivo
+  try {
+    const rec = await buildRMRecord();
+    const store = await guardarRMEnStore(rec);
+    const json = { blob: await buildBackupBlob(store), filename: backupFilename(store), mime: 'application/json' };
+    _archivosRM = [json];
+    resetFormForNewRM();
+    abrirEntregaModal(rec.id);
+  } catch (e) {
+    alert('No se pudo guardar la RM: ' + e.message);
     console.error(e);
   }
 }
@@ -7358,6 +7383,11 @@ document.getElementById('revision-generar').addEventListener('click', () => {
   fichaConfirmada = document.getElementById('revision-confirmar').checked;
   document.getElementById('revision-modal').style.display = 'none';
   generarYEntregarRM();
+});
+document.getElementById('revision-guardar-json').addEventListener('click', () => {
+  fichaConfirmada = document.getElementById('revision-confirmar').checked;
+  document.getElementById('revision-modal').style.display = 'none';
+  guardarSoloJSON();
 });
 document.getElementById('revision-cancelar').addEventListener('click', () => { document.getElementById('revision-modal').style.display = 'none'; });
 document.getElementById('btn-kmz-dia').addEventListener('click', generateCombinedKMZ);
