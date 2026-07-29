@@ -1116,7 +1116,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v95';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v96';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -5749,7 +5749,11 @@ function pcBtnEstado(txt, activo) {
   b.textContent = txt;
   b.classList.toggle('active', !!activo);
 }
-function esc2(s) { return String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+// Escapa también la comilla doble: varios call sites insertan el resultado DENTRO de un
+// atributo (data-*, style, src), donde un `"` sin escapar rompe el atributo y permite
+// inyectar handlers. En contexto de texto `&quot;` se ve igual que `"`, así que es seguro
+// escaparla siempre. Mismo criterio ya aplicado a la URL de fuente en la lista de RMs.
+function esc2(s) { return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
 // Culling por viewport: con 15.799 puntos, dibujarlos todos en cada pan lagea en móvil
 // (~750ms el render completo). Se dibujan solo los que caen en la vista actual (con margen),
 // y se redibuja en 'moveend'. Al acercar el zoom quedan poquísimos → fluido; a escala país
@@ -6169,7 +6173,7 @@ function iptRenderPanel() {
   const regionesHtml = (iptManifest ? iptManifest.regiones : []).map(r => {
     const reg = iptRegiones[r.id] || {};
     const cargando = Object.values(reg.grupos || {}).some(gr => gr.cargando);
-    return '<label style="' + lbl + '"><input type="checkbox" data-region="' + r.id + '"' +
+    return '<label style="' + lbl + '"><input type="checkbox" data-region="' + esc2(r.id) + '"' +
       (reg.on ? ' checked' : '') +
       ' style="margin-right:6px;transform:scale(1.15)">' + esc2(r.nombre) + (cargando ? ' ⏳' : '') + '</label>';
   }).join('');
@@ -6411,7 +6415,7 @@ function infraRenderPanel() {
         const cap = infraCapas[c.id] || {};
         const cont = cap.cargando ? ' ⏳' : (cap.data ? ' <span style="color:#8a94a3">(' + cap.data.features.length + ')</span>' : '');
         const warn = c.pesada ? ' <span style="color:#c0392b">(capa pesada)</span>' : '';
-        html += '<label style="' + lbl + '"><input type="checkbox" data-infra="' + c.id + '"' +
+        html += '<label style="' + lbl + '"><input type="checkbox" data-infra="' + esc2(c.id) + '"' +
           (cap.on ? ' checked' : '') + ' style="margin-right:6px;transform:scale(1.1)">' +
           esc2(c.label) + warn + cont + '</label>';
       });
@@ -6939,7 +6943,10 @@ let pelOn = false, pelData = null, pelOverlay = null, pelActivoId = null, pelOpa
 // el manifest (que se pide con cache:'no-store') ya trae los bounds nuevos → overlay viejo
 // estirado a bounds nuevos = desalineado. Se cuelga la versión/fecha del manifest como query
 // param: al cambiar el manifest cambia la URL y no puede quedar caché vieja.
-function pelUrl(path) { return PEL_BASE + path + (pelVer ? '?v=' + encodeURIComponent(pelVer) : ''); }
+// encodeURI sobre el path: deja intactos `/`, `.`, `-`, `_` (todo lo que usan los nombres
+// de archivo reales) pero codifica comillas y espacios — el resultado se inserta en un
+// atributo src="…", donde un `"` crudo rompería el atributo.
+function pelUrl(path) { return PEL_BASE + encodeURI(String(path || '')) + (pelVer ? '?v=' + encodeURIComponent(pelVer) : ''); }
 
 function pelBtnEstado(txt, activo) {
   const b = document.getElementById('mapa-peligros');
@@ -7006,7 +7013,7 @@ function pelCrearControl() {
     const d = L.DomUtil.create('div', 'pel-panel');
     d.style.cssText = 'background:rgba(20,24,31,.92);color:#e8edf2;padding:8px 10px;border-radius:10px;font-size:.78rem;box-shadow:0 2px 8px rgba(0,0,0,.4);max-width:240px;max-height:min(60vh,420px);overflow-y:auto';
     L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
-    const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
     const multi = (pelData || []).length > 1;
     // Sin auto-selección: al abrir la capa NINGÚN mapa está activo todavía (el usuario elige).
     const activoInicial = (pelData || []).find(m => m.id === pelActivoId) || null;
@@ -7059,7 +7066,7 @@ function verLeyendaPeligro() {
   if (!pelActivoId) { toastMapa('Primero elige un mapa de la lista'); return; }
   const m = (pelData || []).find(x => x.id === pelActivoId);
   if (!m || !m.leyenda) { toastMapa('Este mapa no tiene leyenda separada'); return; }
-  const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;z-index:4000;background:rgba(0,0,0,.85);display:flex;flex-direction:column;padding:12px';
   ov.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;color:#fff;margin-bottom:8px;gap:10px">`
