@@ -3551,6 +3551,8 @@ function collectFormData() {
     'morfo-zona': ultimaZonaMorfo ? ultimaZonaMorfo.zona : '',
     'morfo-region': ultimaZonaMorfo ? ultimaZonaMorfo.region : '',
     'morfo-nivel': ultimaZonaMorfo ? ultimaZonaMorfo.nivel : '',
+    'peligro-dcr': ultimaPeligroChoapa ? ultimaPeligroChoapa.dcr : '',
+    'peligro-sfl': ultimaPeligroChoapa ? ultimaPeligroChoapa.sfl : '',
     localidad: document.getElementById('localidad')?.value,
     'n-antecedente': document.getElementById('n-antecedente')?.value,
     'n-reterm': document.getElementById('n-reterm')?.value,
@@ -5108,6 +5110,9 @@ function resetFormForNewRM() {
   document.getElementById('coords-display').textContent = 'Sin ubicación GPS aún...';
   ultimaComunaRegion = null;
   ultimaZonaMorfo = null;   // simétrico con ultimaComunaRegion: no arrastrar la zona morfoclimática de la RM anterior
+  ultimaPeligroChoapa = null;   // simétrico con ultimaComunaRegion/ultimaZonaMorfo
+  clearTimeout(_peligroChoapaTimer);
+  _peligroChoapaGen++;   // invalida cualquier consulta de peligro Choapa en vuelo de la RM anterior
   { const rc = document.getElementById('region-comuna-display'); if (rc) rc.textContent = ''; }
   { const lf = document.getElementById('lluvia-fuente'); if (lf) lf.textContent = 'Ingresa el dato de una estación cercana, o estima automáticamente en el punto GPS.'; }
   { const le = document.getElementById('lluvia-estacion'); if (le) le.textContent = ''; }
