@@ -3904,8 +3904,10 @@ function construirContenidoReterm(data, opts) {
 
 // ===== Figura satelital de conjunto (varios puntos GPS rotulados) =====
 // Modelada en capturarFiguraA, pero con bbox que abarca N puntos + marcador y etiqueta por punto.
-async function capturarFiguraACombinada(puntos) {
-  if (!puntos || !puntos.length) return null;
+// calcularBBoxConjunto/descargarSatelital/dibujarGrillaUTM/dibujarEscala se extrajeron para
+// que capturarFiguraFotosAzimuth (Figura B: fotos+azimut) comparta el MISMO encuadre y la
+// MISMA descarga de red que esta figura, en vez de duplicar ambas cosas.
+function calcularBBoxConjunto(puntos) {
   const lats = puntos.map(p => p.lat), lngs = puntos.map(p => p.lng);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
@@ -3920,7 +3922,15 @@ async function capturarFiguraACombinada(puntos) {
   if (halfLngM / halfLatM < targetAR) halfLngM = halfLatM * targetAR;
   else halfLatM = halfLngM / targetAR;
   const halfLat = halfLatM / mPerLat, halfLng = halfLngM / mPerLng;
-  const west = lngC - halfLng, east = lngC + halfLng, south = latC - halfLat, north = latC + halfLat;
+  return {
+    west: lngC - halfLng, east: lngC + halfLng,
+    south: latC - halfLat, north: latC + halfLat,
+    latC, lngC, W, H
+  };
+}
+
+async function descargarSatelital(bbox) {
+  const { west, south, east, north, W, H } = bbox;
   const url = `https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export?bbox=${west},${south},${east},${north}&bboxSR=4326&size=${W},${H}&imageSR=4326&format=jpg&f=image`;
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
@@ -3933,66 +3943,88 @@ async function capturarFiguraACombinada(puntos) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(imgUrl);
-
-    const drawLabel = (x, y, text, align) => {
-      ctx.font = 'bold 12px Arial';
-      const tw = ctx.measureText(text).width;
-      const bx = align === 'right' ? x - tw - 8 : x + 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(bx, y, tw + 6, 15);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(text, bx + 3, y + 12);
-    };
-    // Grilla UTM
-    ctx.strokeStyle = 'rgba(255,255,0,0.85)';
-    ctx.lineWidth = 1;
-    [0.2, 0.5, 0.8].forEach(fx => {
-      const x = fx * W;
-      const utm = latLonToUTM(latC, west + fx * (east - west));
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-      drawLabel(x, 2, utm.E.toLocaleString() + ' E', fx > 0.8 ? 'right' : 'left');
-    });
-    [0.2, 0.5, 0.8].forEach(fy => {
-      const y = fy * H;
-      const utm = latLonToUTM(north - fy * (north - south), lngC);
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-      drawLabel(2, y + 2, utm.N.toLocaleString() + ' N', 'left');
-    });
-
-    // Marcador + etiqueta por cada punto (proyección lineal inversa del bbox)
-    puntos.forEach(p => {
-      const px = (p.lng - west) / (east - west) * W;
-      const py = (north - p.lat) / (north - south) * H;
-      ctx.beginPath(); ctx.moveTo(px, py - 22); ctx.lineTo(px, py - 8);
-      ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.beginPath(); ctx.arc(px, py, 8, 0, 2 * Math.PI);
-      ctx.fillStyle = '#ff0000'; ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
-      if (p.label) {
-        ctx.font = 'bold 13px Arial';
-        const tw = ctx.measureText(p.label).width;
-        const lx = px + 12 + tw + 8 > W ? px - 12 - tw - 8 : px + 12;
-        ctx.fillStyle = 'rgba(0,0,0,0.72)';
-        ctx.fillRect(lx, py - 9, tw + 8, 18);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(p.label, lx + 4, py + 4);
-      }
-    });
-
-    // Escala aproximada
-    const escalaM = 200;
-    const pxPorGrado = W / (east - west);
-    const metrosPorGrado = 111320 * Math.cos(latC * Math.PI / 180);
-    const escalaPx = escalaM / metrosPorGrado * pxPorGrado;
-    const sx = W - escalaPx - 14, sy = H - 20;
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + escalaPx, sy); ctx.stroke();
-    drawLabel(sx, sy - 18, escalaM + ' m', 'left');
-
-    return canvas.toDataURL('image/jpeg', 0.85);
+    return canvas;
   } catch {
     return null;
   }
+}
+
+function dibujarEtiqueta(ctx, x, y, text, align) {
+  ctx.font = 'bold 12px Arial';
+  const tw = ctx.measureText(text).width;
+  const bx = align === 'right' ? x - tw - 8 : x + 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(bx, y, tw + 6, 15);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, bx + 3, y + 12);
+}
+
+function dibujarGrillaUTM(ctx, bbox) {
+  const { west, east, north, south, latC, lngC, W, H } = bbox;
+  ctx.strokeStyle = 'rgba(255,255,0,0.85)';
+  ctx.lineWidth = 1;
+  [0.2, 0.5, 0.8].forEach(fx => {
+    const x = fx * W;
+    const utm = latLonToUTM(latC, west + fx * (east - west));
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    dibujarEtiqueta(ctx, x, 2, utm.E.toLocaleString() + ' E', fx > 0.8 ? 'right' : 'left');
+  });
+  [0.2, 0.5, 0.8].forEach(fy => {
+    const y = fy * H;
+    const utm = latLonToUTM(north - fy * (north - south), lngC);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    dibujarEtiqueta(ctx, 2, y + 2, utm.N.toLocaleString() + ' N', 'left');
+  });
+}
+
+function dibujarEscala(ctx, bbox) {
+  const { west, east, latC, W, H } = bbox;
+  const escalaM = 200;
+  const pxPorGrado = W / (east - west);
+  const metrosPorGrado = 111320 * Math.cos(latC * Math.PI / 180);
+  const escalaPx = escalaM / metrosPorGrado * pxPorGrado;
+  const sx = W - escalaPx - 14, sy = H - 20;
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + escalaPx, sy); ctx.stroke();
+  dibujarEtiqueta(ctx, sx, sy - 18, escalaM + ' m', 'left');
+}
+
+// puntos: [{lat,lng,label}]. bboxPre/canvasBasePre opcionales — si no se pasan, esta función
+// calcula su propio bbox y hace su propia descarga (uso standalone). generateRETERMCombinado
+// los pasa precalculados para compartir encuadre y descarga con capturarFiguraFotosAzimuth.
+async function capturarFiguraACombinada(puntos, bboxPre, canvasBasePre) {
+  if (!puntos || !puntos.length) return null;
+  const bbox = bboxPre || calcularBBoxConjunto(puntos);
+  const canvasBase = canvasBasePre !== undefined ? canvasBasePre : await descargarSatelital(bbox);
+  if (!canvasBase) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = bbox.W; canvas.height = bbox.H;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(canvasBase, 0, 0);
+  dibujarGrillaUTM(ctx, bbox);
+
+  // Marcador + etiqueta por cada punto (proyección lineal inversa del bbox)
+  puntos.forEach(p => {
+    const px = (p.lng - bbox.west) / (bbox.east - bbox.west) * bbox.W;
+    const py = (bbox.north - p.lat) / (bbox.north - bbox.south) * bbox.H;
+    ctx.beginPath(); ctx.moveTo(px, py - 22); ctx.lineTo(px, py - 8);
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.beginPath(); ctx.arc(px, py, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = '#ff0000'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+    if (p.label) {
+      ctx.font = 'bold 13px Arial';
+      const tw = ctx.measureText(p.label).width;
+      const lx = px + 12 + tw + 8 > bbox.W ? px - 12 - tw - 8 : px + 12;
+      ctx.fillStyle = 'rgba(0,0,0,0.72)';
+      ctx.fillRect(lx, py - 9, tw + 8, 18);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(p.label, lx + 4, py + 4);
+    }
+  });
+
+  dibujarEscala(ctx, bbox);
+  return canvas.toDataURL('image/jpeg', 0.85);
 }
 
 // ===== RETERM compilado (varias RM en un solo .docx) =====
