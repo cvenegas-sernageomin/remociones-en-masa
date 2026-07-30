@@ -4123,7 +4123,27 @@ async function generateRETERMCombinado(records, nReterm, ret) {
       const p = coordDe(rec.data);
       if (p) puntos.push({ lat: p.lat, lng: p.lng, label: rmLbl(i) });
     });
-    const figConjunto = puntos.length ? await capturarFiguraACombinada(puntos) : null;
+    // bbox + descarga satelital compartidos entre Figura A (conjunto de RM) y Figura B
+    // (fotos + azimut): mismo encuadre exacto, una sola llamada de red para ambas.
+    const bboxConjunto = puntos.length ? calcularBBoxConjunto(puntos) : null;
+    const canvasBaseConjunto = bboxConjunto ? await descargarSatelital(bboxConjunto) : null;
+    const figConjunto = (puntos.length && canvasBaseConjunto)
+      ? await capturarFiguraACombinada(puntos, bboxConjunto, canvasBaseConjunto) : null;
+
+    // Grupos de fotos por RM (con azimut) para la Figura B — solo RM con al menos una foto
+    // usable (blob o blobDataUrl real, no un item de foto vacío del wizard).
+    const gruposFotos = [];
+    records.forEach((rec, i) => {
+      const p = coordDe(rec.data);
+      if (!p) return;
+      const fotosConDatos = (rec.fotos || [])
+        .filter(f => f.blob || f.blobDataUrl)
+        .map((f, k) => ({ numFoto: k + 1, azimuth: f.azimuth ?? null }));
+      if (!fotosConDatos.length) return;
+      gruposFotos.push({ label: rmLbl(i), lat: p.lat, lng: p.lng, fotos: fotosConDatos });
+    });
+    const figFotosAzimuth = (gruposFotos.length && canvasBaseConjunto)
+      ? await capturarFiguraFotosAzimuth(gruposFotos, bboxConjunto, canvasBaseConjunto) : null;
 
     // Región del título: si todas comparten, se usa; si no, "VARIAS REGIONES"
     const regionesSet = new Set(records.map(r => (r.data.region || '').replace(/\s*\(.*\)/, '').trim()).filter(Boolean));
@@ -4194,6 +4214,22 @@ async function generateRETERMCombinado(records, nReterm, ret) {
         + wP(wR('Figura A. Ubicación de conjunto de las remociones en masa incluidas en este reporte (imagen satelital con grilla UTM; cada punto rotulado con su identificador RM-NN).', { i: true, sz: 17 }), { align: 'center' });
     } else {
       figCell = wP(wR('Figura A: sin imagen satelital (ninguna RM con coordenadas, o sin conexión al generar).', { i: true, color: '999999', sz: 18 }), { align: 'center' });
+    }
+
+    // --- Figura B: fotos de terreno + azimut (fila de ancho completo, antes del Registro fotográfico) ---
+    let figBRow = '';
+    if (figFotosAzimuth) {
+      const bytesB = dataUrlToU8(figFotosAzimuth);
+      const extB = /^data:image\/png/.test(figFotosAzimuth) ? 'png' : 'jpg';
+      const dB = await imgDims(figFotosAzimuth);
+      const figBCx = Math.round(6.6 * EMU_IN), figBCy = Math.round(figBCx * dB.h / dB.w);
+      const ridB = 'rId' + (++rc);
+      imgRels.push('<Relationship Id="' + ridB + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/figuraFotosAzimuth.' + extB + '"/>');
+      mediaFiles.push({ name: 'word/media/figuraFotosAzimuth.' + extB, bytes: bytesB });
+      figBRow = fullRow(
+        wP(wImg(ridB, figBCx, figBCy, 901, 'FiguraFotosAzimuth'), { align: 'center', after: 40 })
+        + wP(wR('Figura B. Ubicación y azimut de las fotografías de terreno incluidas en este reporte (imagen satelital con grilla UTM; cada flecha indica la dirección hacia la que apuntaba la cámara al momento de tomarla).', { i: true, sz: 17 }), { align: 'center' })
+      );
     }
 
     // --- Encabezado de identificación (una sola tabla, como el informe individual) ---
@@ -4287,6 +4323,7 @@ async function generateRETERMCombinado(records, nReterm, ret) {
       + secRow(descripcionRow)
       + idRows
       + secRow('Insumos utilizados para el análisis') + fullRow(wP(wR(insumos), { align: 'both' }))
+      + figBRow
       + (fotosRows ? secRow('Registro fotográfico') + fotosRows : '')
       + secRow('Observaciones') + fullRow(obsXml)
       + secRow('Conclusiones y recomendaciones') + fullRow(concluXml)
