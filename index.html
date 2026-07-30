@@ -1049,6 +1049,12 @@ body.map-mode #nav-buttons { display: none !important; }
     </span>
     <button class="map-btn" id="mapa-kmz" title="Cargar un KMZ o KML propio como capa del mapa">📂 KMZ</button>
     <button class="map-btn" id="mapa-legend">ⓘ Leyenda</button>
+    <span class="map-btn-stack">
+      <button class="map-btn map-btn-sm active" id="mapa-ver-terreno" title="Mostrar/ocultar en el mapa las RM de Terreno (▲)" aria-label="Ver Terreno" aria-pressed="true">▲</button>
+    </span>
+    <span class="map-btn-stack">
+      <button class="map-btn map-btn-sm active" id="mapa-ver-gabinete" title="Mostrar/ocultar en el mapa las RM de Gabinete (★)" aria-label="Ver Gabinete" aria-pressed="true">★</button>
+    </span>
     <span class="pts-count" id="mapa-count">0 RM</span>
     <input type="file" id="input-kmz-mapa" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml" style="display:none">
    </div>
@@ -1116,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v96';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v97';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -5345,17 +5351,36 @@ function svgEstructura(e, cx, cy) {
   return s;
 }
 const ZONA_CSS = { generacion: '#ff0000', runout: '#0066ff', ambas: '#00cccc' };
+// Triángulo = Terreno (visita real); Estrella = Gabinete (compilada de fuentes externas, sin
+// visita). Antes solo se diferenciaban por un contorno discontinuo (difícil de ver a simple
+// vista, sobre todo en el teléfono); una forma distinta es inconfundible incluso con el toggle
+// de capa apagado para una de las dos. Estrella (no cuadrado) para no confundirse con los
+// cuadrados de la capa Pronóstico cuando ambas están activas a la vez.
+const RM_TRIANGULO = 'M24 15 L33 31 L15 31 Z';
+const RM_ESTRELLA = 'M24,13 L26.6,20.4 L34.5,20.6 L28.3,25.4 L30.5,32.9 L24,28.5 L17.5,32.9 L19.7,25.4 L13.5,20.6 L21.4,20.4 Z';
 function iconoRM(rec) {
   const d = rec.data || {}; const col = ZONA_CSS[d.zona] || '#e63946';
   let sym = ''; (d['estructuras-dip'] || []).forEach(e => { sym += svgEstructura(e, 24, 24); });
-  // Triángulo (símbolo de peligro) — forma distinta a los círculos de estaciones y a los cuadrados del pronóstico.
-  // Gabinete: contorno discontinuo (en vez de sólido) para distinguir a simple vista un punto
-  // preliminar/no verificado en terreno de uno con visita real — mismo color por zona.
   const esGabinete = d.origen === 'gabinete';
-  const strokeDash = esGabinete ? ' stroke-dasharray="3,2"' : '';
+  const shapePath = esGabinete ? RM_ESTRELLA : RM_TRIANGULO;
   const html = `<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">`
-    + `<path d="M24 15 L33 31 L15 31 Z" fill="${col}" stroke="#fff" stroke-width="2" stroke-linejoin="round"${strokeDash}/>${sym}</svg>`;
+    + `<path d="${shapePath}" fill="${col}" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>${sym}</svg>`;
   return L.divIcon({ html, className: 'rm-divicon', iconSize: [48, 48], iconAnchor: [24, 24] });
+}
+// Mostrar/ocultar cada colección en el mapa por separado (solo afecta qué se dibuja, no borra
+// datos). Por defecto ambas visibles — mismo comportamiento que antes de este toggle.
+let mapaVerTerreno = true, mapaVerGabinete = true;
+function toggleVerTerreno() {
+  mapaVerTerreno = !mapaVerTerreno;
+  const b = document.getElementById('mapa-ver-terreno');
+  b.classList.toggle('active', mapaVerTerreno); b.setAttribute('aria-pressed', String(mapaVerTerreno));
+  renderMapaFull();
+}
+function toggleVerGabinete() {
+  mapaVerGabinete = !mapaVerGabinete;
+  const b = document.getElementById('mapa-ver-gabinete');
+  b.classList.toggle('active', mapaVerGabinete); b.setAttribute('aria-pressed', String(mapaVerGabinete));
+  renderMapaFull();
 }
 
 // ---- Líneas geológicas dibujables sobre el satelital ----
@@ -5439,15 +5464,28 @@ function initMapaFull() {
   mapaFull.on('click', onMapaFullClick);
   setTimeout(() => mapaFull.invalidateSize(), 120);
 }
+// Token de "última llamada gana": renderMapaFull() es async (dos awaits a IndexedDB) y se
+// dispara desde varios sitios (toggles, showView, guardar RM, dibujar línea…). Si dos llamadas
+// se solapan (p.ej. tocar dos toggles seguidos antes de que la primera termine), ambas hacían
+// clearLayers() al principio y luego agregaban sus propios marcadores al terminar → duplicados
+// fantasma. Cada llamada guarda su número de turno; si al volver de un await ya no es la más
+// reciente, se aborta sin dibujar (la llamada más nueva es la que manda).
+let _mapaFullRenderGen = 0;
 async function renderMapaFull() {
   if (!mapaFull) return;
+  const miGen = ++_mapaFullRenderGen;
   mapaFullMarkers.clearLayers(); mapaFullLines.clearLayers();
-  // El mapa siempre muestra AMBAS colecciones juntas (Terreno + Gabinete) — es solo ubicación
+  // El mapa puede mostrar AMBAS colecciones juntas (Terreno + Gabinete) — es solo ubicación
   // geográfica, no un informe, así que no aplica la restricción de "solo Terreno" de RETERM.
+  // Los toggles #mapa-ver-terreno/#mapa-ver-gabinete deciden qué se DIBUJA; el contador de
+  // abajo sigue mostrando el total real (oculto no es lo mismo que no-existe).
   const all = [...(await rmGetAll(RM_STORE)), ...(await rmGetAll(RM_GAB_STORE))];
+  if (miGen !== _mapaFullRenderGen) return;
   const pts = [];
   all.forEach(r => {
     const c = r.data && r.data.coords; if (!c) return;
+    const esGab = r.data.origen === 'gabinete';
+    if (esGab ? !mapaVerGabinete : !mapaVerTerreno) return;
     const lng = c.lng ?? c.lon; if (c.lat == null || lng == null) return;
     const m = L.marker([c.lat, lng], { icon: iconoRM(r) }).addTo(mapaFullMarkers);
     if (r.id) m.bindTooltip(r.id, { permanent: true, direction: 'bottom', offset: [0, 16], className: 'pt-label' });
@@ -5461,6 +5499,7 @@ async function renderMapaFull() {
     pts.push([cc.lat, cc.lng]);
   }
   const lineas = await lineaGetAll();
+  if (miGen !== _mapaFullRenderGen) return;
   lineas.forEach(L2 => {
     if (!L2.geom || L2.geom.length < 2) return;
     const pl = L.polyline(L2.geom, estiloLinea(L2)).addTo(mapaFullLines);
@@ -7257,7 +7296,8 @@ function legendaMapa() {
   box.style.cssText = 'background:var(--bg,#111);color:var(--fg,#eee);border-radius:12px;padding:16px;max-width:420px;width:100%;border:1px solid var(--border,#333)';
   box.innerHTML = `<h3 style="margin:0 0 10px">Simbología</h3>
     <div style="font-size:0.85rem;line-height:1.6;color:var(--muted)">
-    <b style="color:#ff0000">▲</b> RM zona generación · <b style="color:#0066ff">▲</b> runout · <b style="color:#00cccc">▲</b> ambas <i>(triángulo)</i><br>
+    <b style="color:#ff0000">▲</b> RM zona generación · <b style="color:#0066ff">▲</b> runout · <b style="color:#00cccc">▲</b> ambas <i>(triángulo = Terreno, ★ = Gabinete; mismo color por zona)</i><br>
+    ▲/★ arriba de la lista de capas: muestra/oculta las RM de Terreno o de Gabinete en el mapa<br>
     <b style="color:#22c55e">■</b> <b style="color:#ffcc00">■</b> <b style="color:#ff2d2d">■</b> punto de pronóstico <i>(cuadrado; verde/amarillo/rojo según lluvia + isoterma)</i><br>
     <b style="color:#22c55e">●</b> estación meteorológica <i>(círculo; color por lluvia registrada)</i><br>
     <b style="color:#7e22ce">●</b> <b style="color:#dc2626">●</b> <b style="color:#f59e0b">●</b> <b style="color:#16a34a">●</b> punto crítico SENAPRED <i>(muy alto / alto / medio / bajo)</i><br>
@@ -7423,6 +7463,8 @@ document.getElementById('mapa-peligros').addEventListener('click', togglePeligro
 document.getElementById('mapa-pronostico').addEventListener('click', togglePronostico);
 document.getElementById('mapa-ipt').addEventListener('click', toggleIPT);
 document.getElementById('mapa-infra').addEventListener('click', toggleInfra);
+document.getElementById('mapa-ver-terreno').addEventListener('click', toggleVerTerreno);
+document.getElementById('mapa-ver-gabinete').addEventListener('click', toggleVerGabinete);
 document.getElementById('mapa-fab-handle').addEventListener('click', () => {
   const fab = document.getElementById('mapa-fab');
   fab.classList.toggle('colapsado');
