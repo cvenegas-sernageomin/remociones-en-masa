@@ -4137,8 +4137,9 @@ async function generateRETERMCombinado(records, nReterm, ret) {
       const p = coordDe(rec.data);
       if (!p) return;
       const fotosConDatos = (rec.fotos || [])
-        .filter(f => f.blob || f.blobDataUrl)
-        .map((f, k) => ({ numFoto: k + 1, azimuth: f.azimuth ?? null }));
+        .map((f, k) => ({ f, numFoto: k + 1 }))
+        .filter(x => x.f.blob || x.f.blobDataUrl)
+        .map(x => ({ numFoto: x.numFoto, azimuth: x.f.azimuth ?? null }));
       if (!fotosConDatos.length) return;
       gruposFotos.push({ label: rmLbl(i), lat: p.lat, lng: p.lng, fotos: fotosConDatos });
     });
