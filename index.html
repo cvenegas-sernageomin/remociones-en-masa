@@ -2648,6 +2648,7 @@ ${prelimHTML}
   ${row('N° Antecedente', data['n-antecedente'])}
   ${row('Zona', zona.charAt(0).toUpperCase() + zona.slice(1))}
   ${row('Zona morfoclimática', data['morfo-zona'] ? data['morfo-zona'] + (data['morfo-nivel'] ? ` (posibilidad ${data['morfo-nivel']})` : '') : null)}
+  ${row('Peligro geológico (Choapa)', data['peligro-dcr'] ? `Deslizamiento/Caída de rocas: ${data['peligro-dcr']} · Flujos de detritos: ${data['peligro-sfl']}` : null)}
   ${row('Coordenadas', coords ? `${coords.lat.toFixed(6)}, ${(coords.lng ?? coords.lon).toFixed(6)}` : null)}
   ${row('Fecha del evento', fechaStr)}
   ${row('Hora', horaStr)}
