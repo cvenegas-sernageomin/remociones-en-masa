@@ -1911,11 +1911,49 @@ let ultimaComunaRegion = null;
 // punto cae fuera de las 119 zonas o el dataset aún no se cargó. collectFormData() lee este
 // valor cacheado (mismo patrón que ultimaComunaRegion).
 let ultimaZonaMorfo = null;
+// Peligro geológico Choapa (DCR+SFL) del punto actual — consulta EN VIVO al FeatureServer
+// público de SERNAGEOMIN (a diferencia de comuna/zona morfoclimática, que son datasets
+// descargados una vez y cacheados para ray casting offline: este cubre solo 4 comunas de
+// Choapa y tiene 165k polígonos, demasiado denso para replicar ese patrón — ver spec
+// docs/superpowers/specs/2026-07-30-peligro-geologico-choapa-design.md). null si el punto
+// cae fuera de Choapa, si la consulta falló, o si aún no se resolvió.
+let ultimaPeligroChoapa = null;
+let _peligroChoapaTimer = null;
+let _peligroChoapaGen = 0;   // token "última consulta gana": descarta respuestas tardías de una posición vieja del marcador
+
+const PELIGRO_CHOAPA_URL = 'https://services1.arcgis.com/OyjvVdFTl5hfSdX3/arcgis/rest/services/Mapa_de_Peligro_Geol%C3%B3gico_de_Coquimbo_500_WFL1/FeatureServer/0/query';
+
+async function consultarPeligroChoapa(lat, lng) {
+  const gen = ++_peligroChoapaGen;
+  const geom = encodeURIComponent(JSON.stringify({ x: lng, y: lat, spatialReference: { wkid: 4326 } }));
+  const url = `${PELIGRO_CHOAPA_URL}?geometry=${geom}&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=SFL,DCR&returnGeometry=false&f=json`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const j = await resp.json();
+    if (gen !== _peligroChoapaGen) return;   // el marcador ya se movió de nuevo: descartar
+    const f = (j.features || [])[0];
+    ultimaPeligroChoapa = f ? { dcr: f.attributes.DCR || '', sfl: f.attributes.SFL || '' } : null;
+  } catch (err) {
+    if (gen !== _peligroChoapaGen) return;
+    ultimaPeligroChoapa = null;
+    console.warn('peligro geológico Choapa:', err);
+  }
+}
+
+function programarConsultaPeligroChoapa(c) {
+  clearTimeout(_peligroChoapaTimer);
+  if (!c || c.lat == null) return;
+  const lat = c.lat, lng = c.lng ?? c.lon;
+  _peligroChoapaTimer = setTimeout(() => consultarPeligroChoapa(lat, lng), 700);
+}
+
 function actualizarRegionComunaDisplay() {
   const el = document.getElementById('region-comuna-display');
   const c = getCoords();
   ultimaZonaMorfo = zonaMorfoDesdeCoords(c);
   if (!morfoPoligonos) cargarMorfoPoligonos().then(() => { ultimaZonaMorfo = zonaMorfoDesdeCoords(getCoords()); });
+  programarConsultaPeligroChoapa(c);
   const r = comunaRegionDesdeCoords(c);
   if (r) {
     ultimaComunaRegion = r;
