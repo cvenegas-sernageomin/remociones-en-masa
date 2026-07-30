@@ -3846,6 +3846,12 @@ function construirContenidoReterm(data, opts) {
       if (data['morfo-nivel']) {
         concluParts.push(`Según la zonificación morfoclimática de SERNAGEOMIN/DGA, el punto se emplaza en la zona "${esc(data['morfo-zona'])}"${data['morfo-region'] ? ' (' + esc(data['morfo-region']) + ')' : ''}, calificada con una posibilidad de ocurrencia de remociones en masa <b>${esc(data['morfo-nivel'])}</b>.`);
       }
+      // Mapa de Peligro Geológico de Coquimbo (SERNAGEOMIN, sector sur — provincia de
+      // Choapa): solo entra si el punto cayó dentro de esa cobertura (4 comunas) al
+      // momento de mover el marcador — ver consultarPeligroChoapa.
+      if (data['peligro-dcr']) {
+        concluParts.push(`Según el Mapa de Peligro Geológico de Coquimbo (SERNAGEOMIN, sector sur — provincia de Choapa), el punto se emplaza en un sector con susceptibilidad <b>${esc(data['peligro-dcr'])}</b> de deslizamiento y caída de rocas, y susceptibilidad <b>${esc(data['peligro-sfl'])}</b> de flujos de detritos.`);
+      }
     }
 
     // 2) Magnitud (morfometría)
