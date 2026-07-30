@@ -5139,6 +5139,13 @@ function populateForm(rec) {
     const cd = document.getElementById('coords-display');
     if (cd) cd.textContent = `${d.coords.lat.toFixed(6)}, ${lng.toFixed(6)}`;
     actualizarRegionComunaDisplay();   // recalcula con la comuna/región real (arregla RM viejas con la franja de latitud)
+    // Restaurar peligro geológico Choapa desde el registro guardado, sin esperar la
+    // consulta en vivo que actualizarRegionComunaDisplay ya disparó — evita que una
+    // consulta lenta o fallida pise el dato ya persistido al reabrir para editar
+    // (bug encontrado en verificación end-to-end: ver Task 5 del plan).
+    clearTimeout(_peligroChoapaTimer);
+    _peligroChoapaGen++;   // invalida la consulta recién programada
+    ultimaPeligroChoapa = d['peligro-dcr'] ? { dcr: d['peligro-dcr'], sfl: d['peligro-sfl'] } : null;
   }
   setEl('tipo-movimiento', d['tipo-movimiento']);
   updateMorfoFields(d['tipo-movimiento']);
