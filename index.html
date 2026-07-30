@@ -4027,6 +4027,82 @@ async function capturarFiguraACombinada(puntos, bboxPre, canvasBasePre) {
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
+// Paleta cíclica por RM para la Figura B (fotos+azimut) — 8 colores, se repite si hay más de
+// 8 RM con fotos en el mismo reporte compilado.
+const COLORES_RM_FOTOS = ['#e63946', '#3a86ff', '#2a9d8f', '#f4a261', '#8338ec', '#00b4d8', '#ff70a6', '#ffd60a'];
+
+// gruposFotos: [{label:'RM-01', lat, lng, fotos:[{numFoto, azimuth}]}], ya filtrado para
+// incluir solo RM con al menos una foto usable (ver generateRETERMCombinado). bbox/canvasBase
+// deben ser los MISMOS que usó capturarFiguraACombinada para este reporte (mismo encuadre).
+async function capturarFiguraFotosAzimuth(gruposFotos, bbox, canvasBase) {
+  if (!gruposFotos || !gruposFotos.length || !canvasBase) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = bbox.W; canvas.height = bbox.H;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(canvasBase, 0, 0);
+  dibujarGrillaUTM(ctx, bbox);
+
+  const LARGO_FLECHA = 38;
+  gruposFotos.forEach((g, gi) => {
+    const color = COLORES_RM_FOTOS[gi % COLORES_RM_FOTOS.length];
+    const px = (g.lng - bbox.west) / (bbox.east - bbox.west) * bbox.W;
+    const py = (bbox.north - g.lat) / (bbox.north - bbox.south) * bbox.H;
+
+    // Marcador de la RM (color propio, no rojo como Figura A, para distinguir ambas figuras)
+    ctx.beginPath(); ctx.arc(px, py, 7, 0, 2 * Math.PI);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+
+    g.fotos.forEach(f => {
+      if (f.azimuth == null) {
+        // Foto sin azimut conocido: aro sin flecha alrededor del marcador de la RM
+        ctx.beginPath(); ctx.arc(px, py, 13, 0, 2 * Math.PI);
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+        return;
+      }
+      const rad = f.azimuth * Math.PI / 180;
+      const dx = Math.sin(rad), dy = -Math.cos(rad);   // 0°=Norte arriba, sentido horario
+      const ex = px + dx * LARGO_FLECHA, ey = py + dy * LARGO_FLECHA;
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(ex, ey); ctx.stroke();
+      // Punta de flecha
+      const headLen = 8, ang = Math.atan2(ey - py, ex - px);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - headLen * Math.cos(ang - Math.PI / 6), ey - headLen * Math.sin(ang - Math.PI / 6));
+      ctx.lineTo(ex - headLen * Math.cos(ang + Math.PI / 6), ey - headLen * Math.sin(ang + Math.PI / 6));
+      ctx.closePath(); ctx.fill();
+      // Etiqueta RM0N-FK junto a la punta
+      const label = g.label.replace('RM-', 'RM') + '-F' + f.numFoto;
+      ctx.font = 'bold 11px Arial';
+      const tw = ctx.measureText(label).width;
+      const lx = ex + dx * 12 - (dx < 0 ? tw + 4 : 0);
+      const ly = ey + dy * 12;
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(lx - 2, ly - 10, tw + 6, 14);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, lx, ly + 1);
+    });
+  });
+
+  // Leyenda de colores por RM (esquina inferior izquierda)
+  const legendH = gruposFotos.length * 16 + 8;
+  const legendYStart = bbox.H - 20 - legendH;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(6, legendYStart - 4, 90, legendH);
+  gruposFotos.forEach((g, gi) => {
+    const y = legendYStart + gi * 16 + 8;
+    ctx.fillStyle = COLORES_RM_FOTOS[gi % COLORES_RM_FOTOS.length];
+    ctx.fillRect(10, y - 8, 12, 12);
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px Arial';
+    ctx.fillText(g.label, 26, y + 2);
+  });
+
+  dibujarEscala(ctx, bbox);
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
 // ===== RETERM compilado (varias RM en un solo .docx) =====
 // Reutiliza construirContenidoReterm() (misma prosa institucional que el informe individual)
 // y los helpers OOXML. Una figura de conjunto arriba + tabla resumen + una sección por RM.
