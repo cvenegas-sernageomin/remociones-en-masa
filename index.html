@@ -1122,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v100';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v101';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -6420,17 +6420,31 @@ function iptRenderPanel() {
     // grupos existentes en alguna región (para no mostrar categorías que ninguna región tiene)
     const dispon = new Set();
     (iptManifest ? iptManifest.regiones : []).forEach(r => (r.grupos || []).forEach(x => dispon.add(x.g)));
-    const regionesHtml = (iptManifest ? iptManifest.regiones : []).map(r => {
+    // Regiones reales (auto!==false) se listan una a una; las pseudo-regiones de escala país
+    // (auto:false — división comunal, zonificación morfoclimática, y cualquier capa nacional
+    // que se agregue después) se agrupan bajo un solo botón "🇨🇱 Chile" en vez de aparecer
+    // sueltas mezcladas con las regiones reales.
+    const regionesReales = (iptManifest ? iptManifest.regiones : []).filter(r => r.auto !== false);
+    const regionesNacionales = (iptManifest ? iptManifest.regiones : []).filter(r => r.auto === false);
+    const regionesHtml = regionesReales.map(r => {
       const reg = iptRegiones[r.id] || {};
       const cargando = Object.values(reg.grupos || {}).some(gr => gr.cargando);
       return '<label style="' + lbl + '"><input type="checkbox" data-region="' + esc2(r.id) + '"' +
         (reg.on ? ' checked' : '') +
         ' style="margin-right:6px;transform:scale(1.15)">' + esc2(r.nombre) + (cargando ? ' ⏳' : '') + '</label>';
     }).join('');
+    let chileHtml = '';
+    if (regionesNacionales.length) {
+      const chileOn = regionesNacionales.every(r => (iptRegiones[r.id] || {}).on);
+      const chileCargando = regionesNacionales.some(r => Object.values((iptRegiones[r.id] || {}).grupos || {}).some(gr => gr.cargando));
+      chileHtml = '<label style="' + lbl + '" title="' + esc2(regionesNacionales.map(r => r.nombre).join(' · ')) + '">' +
+        '<input type="checkbox" id="ipt-chile-toggle"' + (chileOn ? ' checked' : '') +
+        ' style="margin-right:6px;transform:scale(1.15)">🇨🇱 Chile — escala país' + (chileCargando ? ' ⏳' : '') + '</label>';
+    }
     const catsHtml = IPT_GRUPOS_PANEL.filter(([g]) => dispon.has(g)).map(([g, nom]) =>
       '<label style="' + lbl + '"><input type="checkbox" data-g="' + g + '"' + (iptVisible[g] ? ' checked' : '') +
       ' style="margin-right:6px;transform:scale(1.15)">' + nom + '</label>').join('');
-    html += regionesHtml +
+    html += regionesHtml + chileHtml +
       '<div style="border-top:1px solid #e5e7eb;margin:5px 0 3px"></div>' +
       '<b style="font-size:.74rem;color:#6b7280">Categorías</b><br>' + catsHtml;
   }
@@ -6457,6 +6471,16 @@ function iptRenderPanel() {
     if (cb.checked) Object.keys(iptRegiones).forEach(rid => { if (iptRegiones[rid].on) cargarGrupoIPT(rid, g); });
     iptAplicarVisibilidad();
   }));
+  const chileCb = div.querySelector('#ipt-chile-toggle');
+  if (chileCb) chileCb.addEventListener('change', () => {
+    const on = chileCb.checked;
+    (iptManifest.regiones || []).filter(r => r.auto === false).forEach(r => {
+      iptRegiones[r.id].on = on;
+      if (on) cargarGruposVisibles(r.id);
+    });
+    iptAplicarVisibilidad();
+    iptRenderPanel();
+  });
 }
 function iptCrearControl() {
   if (iptCtrl || !mapaFull) return;
