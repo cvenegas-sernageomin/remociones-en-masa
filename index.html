@@ -1122,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v99';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v100';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -6175,7 +6175,7 @@ function toggleTemporal() {
 // Los JSON por región NO se precachean en sw.js (varios MB c/u): fetch on-demand la 1ª vez con
 // conexión; el cache-first del SW los deja offline después. Mismo criterio que Mapas de peligro.
 // El manifest va network-first en el SW para que las regiones nuevas aparezcan sin bump de versión.
-let iptOn = false, iptCtrl = null;
+let iptOn = false, iptCtrl = null, iptColapsado = true;
 let iptManifest = null, iptManifestCargando = false, iptAutoHecho = false;
 // Modelo por (region × grupo): cada grupo se descarga en su propio archivo on-demand.
 // iptRegiones[rid] = { on, grupos: { PRC: {archivo, n, data, sub, cargando}, AR: {...}, ... } }
@@ -6405,26 +6405,40 @@ function cargarGruposVisibles(rid) {
 // se muestra con ⚠️ y arranca apagada por ser la capa más pesada.
 // Colores sólidos (NO var(--fg)/var(--border): gotcha recurrente de variables CSS indefinidas).
 const IPT_GRUPOS_PANEL = [['PRC', 'PRC (planes comunales)'], ['PRI', 'PRI (intercomunal)'], ['PRDU', 'PRDU (regional)'], ['AR', '⚠️ Áreas de riesgo'], ['ZNE', 'Zonas no edificables'], ['LU', 'Límites urbanos']];
+// Encabezado clicable con chevron ▾/▸ para contraer el panel — mismo patrón que
+// Infraestructura Crítica (infraColapsado/infraRenderPanel): el panel de IPT creció mucho
+// desde que solo tenía Atacama (ahora varias regiones + división comunal + zona
+// morfoclimática como categorías extra) y en el teléfono llega a tapar el mapa completo.
 function iptRenderPanel() {
   if (!iptCtrl || !iptCtrl._div) return;
   const div = iptCtrl._div;
   const lbl = 'display:block;cursor:pointer;color:#111';
-  // grupos existentes en alguna región (para no mostrar categorías que ninguna región tiene)
-  const dispon = new Set();
-  (iptManifest ? iptManifest.regiones : []).forEach(r => (r.grupos || []).forEach(x => dispon.add(x.g)));
-  const regionesHtml = (iptManifest ? iptManifest.regiones : []).map(r => {
-    const reg = iptRegiones[r.id] || {};
-    const cargando = Object.values(reg.grupos || {}).some(gr => gr.cargando);
-    return '<label style="' + lbl + '"><input type="checkbox" data-region="' + esc2(r.id) + '"' +
-      (reg.on ? ' checked' : '') +
-      ' style="margin-right:6px;transform:scale(1.15)">' + esc2(r.nombre) + (cargando ? ' ⏳' : '') + '</label>';
-  }).join('');
-  const catsHtml = IPT_GRUPOS_PANEL.filter(([g]) => dispon.has(g)).map(([g, nom]) =>
-    '<label style="' + lbl + '"><input type="checkbox" data-g="' + g + '"' + (iptVisible[g] ? ' checked' : '') +
-    ' style="margin-right:6px;transform:scale(1.15)">' + nom + '</label>').join('');
-  div.innerHTML = '<b style="font-size:.8rem">🏛️ IPT — Regiones</b><br>' + regionesHtml +
-    '<div style="border-top:1px solid #e5e7eb;margin:5px 0 3px"></div>' +
-    '<b style="font-size:.74rem;color:#6b7280">Categorías</b><br>' + catsHtml;
+  let html = '<div style="display:flex;align-items:center;gap:6px;cursor:pointer" id="ipt-toggle-colapso">' +
+    '<b style="font-size:.8rem">🏛️ IPT — Regiones</b>' +
+    '<span style="margin-left:auto;color:#6b7280;font-size:.8rem">' + (iptColapsado ? '▸' : '▾') + '</span></div>';
+  if (!iptColapsado) {
+    // grupos existentes en alguna región (para no mostrar categorías que ninguna región tiene)
+    const dispon = new Set();
+    (iptManifest ? iptManifest.regiones : []).forEach(r => (r.grupos || []).forEach(x => dispon.add(x.g)));
+    const regionesHtml = (iptManifest ? iptManifest.regiones : []).map(r => {
+      const reg = iptRegiones[r.id] || {};
+      const cargando = Object.values(reg.grupos || {}).some(gr => gr.cargando);
+      return '<label style="' + lbl + '"><input type="checkbox" data-region="' + esc2(r.id) + '"' +
+        (reg.on ? ' checked' : '') +
+        ' style="margin-right:6px;transform:scale(1.15)">' + esc2(r.nombre) + (cargando ? ' ⏳' : '') + '</label>';
+    }).join('');
+    const catsHtml = IPT_GRUPOS_PANEL.filter(([g]) => dispon.has(g)).map(([g, nom]) =>
+      '<label style="' + lbl + '"><input type="checkbox" data-g="' + g + '"' + (iptVisible[g] ? ' checked' : '') +
+      ' style="margin-right:6px;transform:scale(1.15)">' + nom + '</label>').join('');
+    html += regionesHtml +
+      '<div style="border-top:1px solid #e5e7eb;margin:5px 0 3px"></div>' +
+      '<b style="font-size:.74rem;color:#6b7280">Categorías</b><br>' + catsHtml;
+  }
+  div.innerHTML = html;
+  div.querySelector('#ipt-toggle-colapso').addEventListener('click', () => {
+    iptColapsado = !iptColapsado;
+    iptRenderPanel();
+  });
   div.querySelectorAll('input[data-region]').forEach(cb => cb.addEventListener('change', () => {
     const rid = cb.dataset.region, reg = iptRegiones[rid];
     reg.on = cb.checked;
@@ -6449,7 +6463,7 @@ function iptCrearControl() {
   iptCtrl = L.control({ position: 'bottomleft' });
   iptCtrl.onAdd = () => {
     const div = L.DomUtil.create('div');
-    div.style.cssText = 'background:#fff;color:#111;border-radius:10px;padding:8px 12px;box-shadow:0 1px 8px rgba(0,0,0,.4);font-size:.78rem;line-height:2;user-select:none';
+    div.style.cssText = 'background:#fff;color:#111;border-radius:10px;padding:8px 12px;box-shadow:0 1px 8px rgba(0,0,0,.4);font-size:.78rem;line-height:2;user-select:none;max-height:70vh;overflow-y:auto';
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
     iptCtrl._div = div;
@@ -6527,7 +6541,7 @@ function toggleIPT() {
 // se baja on-demand (fetch de infra/<sector>_<id>.json) recién al marcar su checkbox —
 // igual filosofía que IPT: nada se precarga, "Red Vial" (capa pesada, ~1.8 MB gzip) parte
 // apagada como AR en IPT. ----
-let infraOn = false, infraManifest = null, infraManifestCargando = false, infraCtrl = null, infraColapsado = false;
+let infraOn = false, infraManifest = null, infraManifestCargando = false, infraCtrl = null, infraColapsado = true;
 const infraCapas = {};              // id -> {def, data, cargando, sub}
 const INFRA_BASE = 'infra/';
 let infraCanvasR = null;            // un solo renderer canvas compartido (pane 'infra')
