@@ -1122,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v103';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v104';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2084,7 +2084,7 @@ const HELP_TEXTS = {
   },
   plasticidad: {
     title: 'Plasticidad del material fino',
-    text: 'La plasticidad indica si el material fino (limos y arcillas) puede deformarse sin romperse al ser amasado. Prueba manual: toma un poco de material húmedo y forma un cilindro de ~3 mm de diámetro con la palma. Sin plástico: se desmenuza antes de llegar a ese diámetro. Baja: logra el cilindro pero se rompe fácil. Media: cilindro firme, se dobla sin romperse. Alta: muy flexible y pegajoso, difícil de despegar de los dedos. Selecciona N/A si el material es predominantemente grueso (bloques, gravas, arenas limpias) o si está muy seco para evaluar.'
+    text: 'La plasticidad indica si el material fino (limos y arcillas) puede deformarse sin romperse al ser amasado. Prueba manual: toma un poco de material húmedo y forma un cilindro de ~3 mm de diámetro con la palma. Sin plástico: se desmenuza antes de llegar a ese diámetro. Baja: logra el cilindro pero se rompe fácil. Media: cilindro firme, se dobla sin romperse. Alta: muy flexible y pegajoso, difícil de despegar de los dedos. Selecciona N/A si el material es predominantemente grueso (bolones, gravas, arenas limpias) o si está muy seco para evaluar.'
   },
   bloques: {
     title: 'Tamaño máximo de bolones',
@@ -5730,24 +5730,33 @@ async function abrirRMDesdeMapa(rec) {
   populateForm(match);
   showView('ficha');
 }
-// Marcador "estoy aquí": punto azul + círculo de precisión. Se recrea en cada fix.
+// Marcador "estoy aquí": punto azul + círculo de precisión.
+// Las capas se REUTILIZAN entre fixes (setLatLng/setRadius), no se recrean: con el
+// seguimiento en vivo activo llega ~1 fix/s, y destruir+recrear 2 capas Leaflet por
+// segundo genera basura innecesaria en el teléfono y hace parpadear el tooltip.
 let gpsMarker = null, gpsAccuracyCircle = null;
 function mostrarGpsMarker(lat, lng, accuracy) {
   if (!mapaFull) return;
-  if (gpsMarker) mapaFull.removeLayer(gpsMarker);
-  if (gpsAccuracyCircle) mapaFull.removeLayer(gpsAccuracyCircle);
-  if (accuracy && accuracy > 0) {
-    gpsAccuracyCircle = L.circle([lat, lng], {
+  const conPrecision = !!(accuracy && accuracy > 0);
+  if (conPrecision) {
+    if (gpsAccuracyCircle) { gpsAccuracyCircle.setLatLng([lat, lng]); gpsAccuracyCircle.setRadius(accuracy); }
+    else gpsAccuracyCircle = L.circle([lat, lng], {
       radius: accuracy, className: 'gps-accuracy',
       color: '#2563eb', weight: 1, opacity: 0.5, fillColor: '#2563eb', fillOpacity: 0.12
     }).addTo(mapaFull);
+  } else if (gpsAccuracyCircle) {          // fix sin precisión conocida: retirar el círculo viejo
+    mapaFull.removeLayer(gpsAccuracyCircle); gpsAccuracyCircle = null;
   }
-  gpsMarker = L.marker([lat, lng], {
+  if (gpsMarker) gpsMarker.setLatLng([lat, lng]);
+  else gpsMarker = L.marker([lat, lng], {
     icon: L.divIcon({ className: 'gps-divicon', html: '<div class="gps-dot"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),
     interactive: true, keyboard: false, zIndexOffset: 500
   }).addTo(mapaFull);
-  const prec = accuracy ? ' (±' + Math.round(accuracy) + ' m)' : '';
-  gpsMarker.bindTooltip('📍 Estás aquí' + prec, { direction: 'top', offset: [0, -8] });
+  const prec = conPrecision ? ' (±' + Math.round(accuracy) + ' m)' : '';
+  // setContent en el tooltip ya existente (bindTooltip repetido lo re-crearía en cada fix)
+  const tt = gpsMarker.getTooltip();
+  if (tt) tt.setContent('📍 Estás aquí' + prec);
+  else gpsMarker.bindTooltip('📍 Estás aquí' + prec, { direction: 'top', offset: [0, -8] });
 }
 // Seguimiento GPS en vivo (útil en auto): un toque centra una vez y ACTIVA watchPosition
 // (refresco tan seguido como el chip GPS entregue fixes, típicamente ~1/s con
@@ -6722,7 +6731,7 @@ function infraRenderPanel() {
       const defs = bySector[sid]; if (!defs || !defs.length) return;
       const sec = infraManifest.sectores[sid];
       html += '<div style="border-top:1px solid #e5e7eb;margin:5px 0 2px;padding-top:4px">' +
-        '<b style="font-size:.72rem;color:' + esc2(sec.color) + '">' + sec.icon + ' ' + esc2(sec.label) + '</b></div>';
+        '<b style="font-size:.72rem;color:' + esc2(sec.color) + '">' + esc2(sec.icon) + ' ' + esc2(sec.label) + '</b></div>';
       defs.forEach(c => {
         const cap = infraCapas[c.id] || {};
         const cont = cap.cargando ? ' ⏳' : (cap.data ? ' <span style="color:#8a94a3">(' + cap.data.features.length + ')</span>' : '');
