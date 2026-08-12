@@ -1122,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v102';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v103';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -5633,6 +5633,7 @@ const EST_REDES_EXCLUIR = ['DGA'];
 
 function showView(v) {
   const mapa = v === 'mapa';
+  if (!mapa) detenerSeguimientoGPS();   // no dejar el GPS activo en segundo plano al salir del mapa
   document.querySelectorAll('.viewtab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   document.body.classList.toggle('map-mode', mapa);
   document.getElementById('mapa-view').classList.toggle('active', mapa);
@@ -5748,8 +5749,38 @@ function mostrarGpsMarker(lat, lng, accuracy) {
   const prec = accuracy ? ' (±' + Math.round(accuracy) + ' m)' : '';
   gpsMarker.bindTooltip('📍 Estás aquí' + prec, { direction: 'top', offset: [0, -8] });
 }
+// Seguimiento GPS en vivo (útil en auto): un toque centra una vez y ACTIVA watchPosition
+// (refresco tan seguido como el chip GPS entregue fixes, típicamente ~1/s con
+// enableHighAccuracy); cada fix recentra el mapa (mismo zoom, no resetea) y mueve el
+// marcador — otro toque detiene el seguimiento. Se detiene solo al salir del Tab de Mapa
+// (showView) para no dejar el GPS activo en segundo plano sin necesidad.
+let gpsWatchId = null;
+function gpsBtnEstado(activo) {
+  const b = document.getElementById('mapa-gps');
+  if (!b) return;
+  b.classList.toggle('active', activo);
+  b.title = activo ? 'Detener seguimiento GPS' : 'Centrar y seguir mi ubicación (GPS)';
+}
+function iniciarSeguimientoGPS() {
+  if (gpsWatchId !== null || !navigator.geolocation || !mapaFull) return;
+  gpsBtnEstado(true);
+  toastMapa('📡 Siguiendo tu ubicación — toca de nuevo para detener');
+  gpsWatchId = navigator.geolocation.watchPosition(
+    p => {
+      const { latitude, longitude, accuracy } = p.coords;
+      mostrarGpsMarker(latitude, longitude, accuracy);
+      if (mapaFull) mapaFull.setView([latitude, longitude], mapaFull.getZoom());
+    },
+    () => {},   // fix perdido puntual (túnel, etc.): no interrumpe el seguimiento, reintenta solo
+    { enableHighAccuracy: true, maximumAge: 0 });
+}
+function detenerSeguimientoGPS() {
+  if (gpsWatchId !== null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+  gpsBtnEstado(false);
+}
 function mapaFullGPS() {
   if (!navigator.geolocation || !mapaFull) return;
+  if (gpsWatchId !== null) { detenerSeguimientoGPS(); return; }
   const b = document.getElementById('mapa-gps');
   const txt0 = b ? b.textContent : '';
   if (b) { b.textContent = '⏳'; b.disabled = true; }
@@ -5759,6 +5790,7 @@ function mapaFullGPS() {
       const { latitude, longitude, accuracy } = p.coords;
       mostrarGpsMarker(latitude, longitude, accuracy);
       mapaFull.setView([latitude, longitude], 16);
+      iniciarSeguimientoGPS();
     },
     () => { if (b) { b.textContent = txt0; b.disabled = false; } alert('GPS no disponible.'); },
     { enableHighAccuracy: true, timeout: 10000 });
