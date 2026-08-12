@@ -513,7 +513,7 @@ body.map-mode #nav-buttons { display: none !important; }
         <option>Caída de detritos</option>
         <option>Caída de suelo</option>
       </optgroup>
-      <optgroup label="Vuelcos (Topples)">
+      <optgroup label="Vuelcos">
         <option>Vuelco de roca</option>
         <option>Vuelco de detritos</option>
         <option>Vuelco de suelo</option>
@@ -570,7 +570,7 @@ body.map-mode #nav-buttons { display: none !important; }
   <div class="field">
     <label>Granulometría dominante <button class="help-btn" data-help="granulometria">?</button></label>
     <div class="chips-group" id="granulometria-chips">
-      <button type="button" class="chip" data-val="bloques">Bloques</button>
+      <button type="button" class="chip" data-val="bloques">Bolones</button>
       <button type="button" class="chip" data-val="gravas">Gravas</button>
       <button type="button" class="chip" data-val="arenas">Arenas</button>
       <button type="button" class="chip" data-val="limos">Limos</button>
@@ -598,12 +598,12 @@ body.map-mode #nav-buttons { display: none !important; }
   </div>
 
   <div class="field">
-    <label>Tamaño máx. bloques (cm) <button class="help-btn" data-help="bloques">?</button></label>
+    <label>Tamaño máx. bolones (cm) <button class="help-btn" data-help="bloques">?</button></label>
     <input type="number" id="tamano-bloques" min="0" placeholder="ej: 150">
   </div>
 
   <div class="field">
-    <label>Proporción de bloques (% estimado) <button class="help-btn" data-help="proporcion">?</button></label>
+    <label>Proporción de bolones (% estimado) <button class="help-btn" data-help="proporcion">?</button></label>
     <input type="number" id="prop-bloques" min="0" max="100" placeholder="ej: 30">
   </div>
 
@@ -1122,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v101';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v102';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -2080,19 +2080,19 @@ const HELP_TEXTS = {
   },
   granulometria: {
     title: 'Granulometría dominante',
-    text: 'Tamaño de las partículas que componen principalmente el depósito. Selecciona todos los que sean importantes. Bloques: >25 cm. Gravas: 2-25 cm. Arenas: 0.06-2 mm. Limos/arcillas: muy fino.'
+    text: 'Tamaño de las partículas que componen principalmente el depósito. Selecciona todos los que sean importantes. Bolones: > 25 cm. Gravas: 2 mm - 25 cm. Arenas: 0,06 - 2 mm. Limos: 0,004 - 0,06 mm. Arcillas: < 0,004 mm.'
   },
   plasticidad: {
     title: 'Plasticidad del material fino',
     text: 'La plasticidad indica si el material fino (limos y arcillas) puede deformarse sin romperse al ser amasado. Prueba manual: toma un poco de material húmedo y forma un cilindro de ~3 mm de diámetro con la palma. Sin plástico: se desmenuza antes de llegar a ese diámetro. Baja: logra el cilindro pero se rompe fácil. Media: cilindro firme, se dobla sin romperse. Alta: muy flexible y pegajoso, difícil de despegar de los dedos. Selecciona N/A si el material es predominantemente grueso (bloques, gravas, arenas limpias) o si está muy seco para evaluar.'
   },
   bloques: {
-    title: 'Tamaño máximo de bloques',
-    text: 'El bloque de roca más grande que puedas observar en el depósito, medido en su dimensión mayor. Estima en centímetros (ej: 80) o metros si son muy grandes (ej: 500 cm = 5 m).'
+    title: 'Tamaño máximo de bolones',
+    text: 'El bolón de roca más grande que puedas observar en el depósito, medido en su dimensión mayor. Estima en centímetros (ej: 80) o metros si son muy grandes (ej: 500 cm = 5 m).'
   },
   proporcion: {
-    title: 'Proporción de bloques',
-    text: 'Estimación visual de qué porcentaje del depósito son bloques grandes, versus material fino (tierra, arena, etc.). Ej: 30% significa que aproximadamente un tercio del material son bloques.'
+    title: 'Proporción de bolones',
+    text: 'Estimación visual de qué porcentaje del depósito son bolones grandes, versus material fino (tierra, arena, etc.). Ej: 30% significa que aproximadamente un tercio del material son bolones.'
   },
   humedad: {
     title: 'Humedad del material',
@@ -2100,7 +2100,7 @@ const HELP_TEXTS = {
   },
   sorting: {
     title: 'Clasificación del material (Sorting)',
-    text: 'Bien clasificado: el material es bastante uniforme en tamaño. Mal clasificado: hay mezcla de tamaños pero con cierto orden. Caótico: hay de todo revuelto — bloques grandes, tierra fina, ramas — sin ningún orden.'
+    text: 'Bien clasificado: el material es bastante uniforme en tamaño. Mal clasificado: hay mezcla de tamaños pero con cierto orden. Caótico: hay de todo revuelto — bolones grandes, tierra fina, ramas — sin ningún orden.'
   },
   'tipo-ladera': {
     title: 'Tipo de ladera',
@@ -2527,7 +2527,7 @@ const ETIQUETAS = {
   // componentes del depósito
   antropico: 'material antrópico', vegetal: 'árboles y restos vegetales',
   // granulometría
-  bloques: 'bloques', gravas: 'gravas', arenas: 'arenas', limos: 'limos', arcillas: 'arcillas',
+  bloques: 'bolones', gravas: 'gravas', arenas: 'arenas', limos: 'limos', arcillas: 'arcillas',
   // geometría de la ladera
   concava: 'cóncava', convexa: 'convexa', plana: 'plana', irregular: 'irregular',
   // infraestructura expuesta
@@ -2661,8 +2661,8 @@ ${prelimHTML}
 <table style="border-collapse:collapse;width:100%">
   ${row('Granulometría', data.granulometria?.length ? etiqLista(data.granulometria) : null)}
   ${row('Plasticidad', data.plasticidad)}
-  ${row('Tamaño máx. bloques', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
-  ${row('Proporción bloques', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
+  ${row('Tamaño máx. bolones', data['tamano-bloques'] ? data['tamano-bloques'] + ' cm' : null)}
+  ${row('Proporción bolones', data['prop-bloques'] ? data['prop-bloques'] + '%' : null)}
   ${row('Humedad', data.humedad)}
   ${row('Sorting', data.sorting)}
 </table>
