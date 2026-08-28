@@ -111,6 +111,67 @@ POS_OCURRENCIA = {
     'MT-POSOC-01': 'Baja', 'MT-POSOC-02': 'Moderada', 'MT-POSOC-03': 'Alta', 'MT-POSOC-04': 'Muy Alta',
 }
 
+# Capa nacional de referencia: glaciares de roca del Inventario Publico de Glaciares 2022
+# (SERNAGEOMIN, INV_PG_2022_v2.shp, 26.180 glaciares, campo CLASIFICA='GLACIAR ROCOSO' =
+# 3.598 a nivel pais). Mismo patron de pseudo-region auto:false que DIVISION_COMUNAL/
+# ZONA_MORFOCLIMATICA (se suma sola al boton "Chile"). Reemplaza como fuente el
+# rgl_andes.shp de andespermafrost.com (2016, solo semiarido 29-32S): este inventario es
+# oficial, nacional y mas reciente.
+GLACIARES_ROCOSOS = {
+    'id': 'glaciares_rocosos',
+    'nombre': 'Glaciares de roca (SERNAGEOMIN)',
+    'shp': r'C:\Users\carlos.venegas\Claude\proyectos\_datos-y-respaldos-sin-repo'
+           r'\datos-sin-repo\Catastro Glaciares\Glaciares\IPG_2022_v2\INV_PG_2022_v2.shp',
+    'tol': 10,      # m; poligonos chicos (mediana 0.06 km2) — no usar la tolerancia de DC (200 m)
+    'decimales': 5,
+}
+
+
+def generar_glaciares_rocosos():
+    cfg = GLACIARES_ROCOSOS
+    if not os.path.isfile(cfg['shp']):
+        print(f"[{cfg['id']}] AVISO: no existe {cfg['shp']} — omitida")
+        return None
+    # El .CPG SÍ dice la verdad (UTF-8) — verificado con bytes crudos ('VICUÑA'.encode('utf-8')
+    # = C3 91 con encoding='utf-8'/default, pero C3 83 E2 80 98 con 'cp1252' = doble-codificado
+    # mal). No forzar cp1252 aunque `repr()`/print() en esta consola Bash sugiera lo contrario
+    # (mismo gotcha ya documentado: nunca confiar en cómo se ve el texto impreso).
+    gdf = gpd.read_file(cfg['shp'])
+    gdf = gdf[gdf['CLASIFICA'] == 'GLACIAR ROCOSO'].copy()
+    gdf = gdf.to_crs(epsg=32719) if (gdf.crs and gdf.crs.to_epsg() != 32719) else gdf.to_crs(epsg=32719)
+    gdf['geometry'] = gdf.geometry.simplify(cfg['tol'], preserve_topology=True)
+    gdf = gdf.to_crs(epsg=4326)
+
+    dec = cfg.get('decimales', DECIMALES)
+    features = []
+    bbox = [180.0, 90.0, -180.0, -90.0]
+    for _, row in gdf.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        b = geom.bounds
+        bbox[0] = min(bbox[0], b[0]); bbox[1] = min(bbox[1], b[1])
+        bbox[2] = max(bbox[2], b[2]); bbox[3] = max(bbox[3], b[3])
+        nom = val(row, 'NOM_GLA', 'NOMBRE')
+        area = row['AREA_KM2']
+        features.append({
+            'type': 'Feature',
+            'properties': {k: v for k, v in (
+                ('g', 'GLR'),
+                ('nom', nom),
+                ('area', round(float(area), 3) if area is not None else None),
+                ('com', val(row, 'COMUNA')),
+                ('reg', val(row, 'REGION')),
+                ('cuenca', val(row, 'NOM_CUEN')),
+                ('hmed', int(row['HMEDIA']) if row['HMEDIA'] is not None else None),
+            ) if v not in (None, '', 0)},
+            'geometry': round_coords(mapping(geom), dec),
+        })
+
+    acum = {'features': features, 'zonas': {}, 'zkeys': {}, 'bbox': bbox}
+    return escribir_por_grupo(cfg['id'], cfg['nombre'], acum,
+                               extra={'auto': False, 'fuente': 'SERNAGEOMIN — Inventario Público de Glaciares 2022'})
+
 # tolerancia de simplificacion en metros, por grupo. Los IPT son referencia de
 # planificacion (no medicion de precision), asi que unos metros de error en los
 # bordes de zona son aceptables y bajan mucho el peso para uso movil en terreno.
@@ -407,7 +468,8 @@ def generar_region_minvu(rid, cfg):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     pedidas = [a.lower() for a in sys.argv[1:]] or (
-        list(REGIONES) + list(REGIONES_MINVU) + [DIVISION_COMUNAL['id'], ZONA_MORFOCLIMATICA['id']])
+        list(REGIONES) + list(REGIONES_MINVU) +
+        [DIVISION_COMUNAL['id'], ZONA_MORFOCLIMATICA['id'], GLACIARES_ROCOSOS['id']])
     manifest_path = os.path.join(OUT_DIR, 'manifest.json')
     # partir del manifest existente para no perder regiones no regeneradas en esta corrida
     previas = {}
@@ -423,12 +485,15 @@ def main():
             entrada = generar_division_comunal()
         elif rid == ZONA_MORFOCLIMATICA['id']:
             entrada = generar_zona_morfoclimatica()
+        elif rid == GLACIARES_ROCOSOS['id']:
+            entrada = generar_glaciares_rocosos()
         elif rid in REGIONES_MINVU:
             entrada = generar_region_minvu(rid, REGIONES_MINVU[rid])
         elif rid in REGIONES:
             entrada = generar_region(rid, REGIONES[rid])
         else:
-            conf = ', '.join(list(REGIONES) + list(REGIONES_MINVU) + [DIVISION_COMUNAL['id'], ZONA_MORFOCLIMATICA['id']])
+            conf = ', '.join(list(REGIONES) + list(REGIONES_MINVU) +
+                              [DIVISION_COMUNAL['id'], ZONA_MORFOCLIMATICA['id'], GLACIARES_ROCOSOS['id']])
             print(f'Region desconocida: {rid} (configuradas: {conf})')
             continue
         if entrada:

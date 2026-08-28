@@ -1122,7 +1122,7 @@ const ZONA_COLOR = {
   ambas: 'ff00ccff'
 };
 
-const APP_VER = 'v104';   // subir junto con el cache de sw.js en cada cambio de index.html
+const APP_VER = 'v105';   // subir junto con el cache de sw.js en cada cambio de index.html
 let currentStep = 1;
 const TOTAL_STEPS = 6;
 let mapInstance = null;
@@ -6223,9 +6223,9 @@ let iptManifest = null, iptManifestCargando = false, iptAutoHecho = false;
 const iptRegiones = {};
 // Categorías visibles por defecto. AR (áreas de riesgo) arranca APAGADA porque es la capa
 // más pesada (geometrías densas de inundación/remoción) — el usuario la prende cuando la necesita.
-const iptVisible = { LU: true, PRC: true, PRI: true, PRDU: true, AR: false, ZNE: true, DC: true, MORFO: true };
+const iptVisible = { LU: true, PRC: true, PRI: true, PRDU: true, AR: false, ZNE: true, DC: true, MORFO: true, GLR: true };
 // Orden de dibujo (fondo→tope) → z-index de pane. PRI/PRDU/PRC de fondo; AR y contornos arriba.
-const IPT_ORDEN = ['MORFO', 'PRI', 'PRDU', 'PRC', 'AR', 'DC', 'ZNE', 'LU'];
+const IPT_ORDEN = ['MORFO', 'PRI', 'PRDU', 'PRC', 'AR', 'GLR', 'DC', 'ZNE', 'LU'];
 const iptCanvasG = {};                   // canvas por grupo (cada uno en su pane)
 const IPT_BASE = 'ipt/';
 function iptBtnEstado(txt, activo) {
@@ -6264,6 +6264,7 @@ function iptEstilo(feat) {
     const c = { Baja: '#22c55e', Moderada: '#eab308', Alta: '#f97316', 'Muy Alta': '#dc2626' }[p.nivel] || '#9ca3af';
     return { color: c, weight: 1, fillColor: c, fillOpacity: p.nivel ? 0.18 : 0.05 };
   }
+  if (p.g === 'GLR') return { color: '#0891b2', weight: 1, fillColor: '#22d3ee', fillOpacity: 0.45 };   // glaciar de roca: celeste
   if (p.g === 'LU') return { color: '#dc2626', weight: 3, dashArray: '6 4', fill: false };
   if (p.g === 'ZNE') return { color: '#7e22ce', weight: 2.5, dashArray: '4 3' };
   if (p.g === 'AR') return { color: '#b91c1c', weight: 1, fillColor: '#ef4444', fillOpacity: 0.3 };   // área de riesgo: rojo uniforme
@@ -6272,7 +6273,7 @@ function iptEstilo(feat) {
   if (p.g === 'PRI') return { color: c, weight: 1, fillColor: c, fillOpacity: 0.15 };
   return { color: c, weight: 1.5, fillColor: c, fillOpacity: 0.25 };   // PRC
 }
-const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', PRDU: 'Plan Regional de Desarrollo Urbano', AR: 'Área de riesgo', ZNE: 'Zona no edificable', DC: 'División comunal', MORFO: 'Zonificación morfoclimática' };
+const IPT_GRUPO_NOMBRE = { LU: 'Límite urbano', PRC: 'Plan Regulador Comunal', PRI: 'Plan Regulador Intercomunal', PRDU: 'Plan Regional de Desarrollo Urbano', AR: 'Área de riesgo', ZNE: 'Zona no edificable', DC: 'División comunal', MORFO: 'Zonificación morfoclimática', GLR: 'Glaciares de roca' };
 function iptNombreRegion(rid) {
   const r = iptManifest && iptManifest.regiones.find(x => x.id === rid);
   return r ? r.nombre : (rid || '');
@@ -6297,6 +6298,16 @@ function iptPopup(p) {
     html += p.nivel
       ? 'Posibilidad de ocurrencia de RM: <b style="color:' + (NIVEL_COLOR[p.nivel] || '#374151') + '">' + esc2(p.nivel) + '</b>'
       : '<span style="color:#8a94a3">Sin calificación de posibilidad de ocurrencia en esta zona</span>';
+    return html;
+  }
+  if (p.g === 'GLR') {   // glaciar de roca (Inventario Público de Glaciares 2022)
+    let html = '<b>🧊 ' + esc2(p.nom || 'Glaciar de roca') + '</b><br/>';
+    html += '<small style="color:#8a94a3">Glaciares de roca · SERNAGEOMIN (IPG 2022)</small><br/>';
+    const lugar = [p.com, p.reg].filter(Boolean).join(' · ');
+    if (lugar) html += esc2(lugar) + '<br/>';
+    if (p.cuenca) html += 'Cuenca: ' + esc2(p.cuenca) + '<br/>';
+    if (p.area) html += 'Área: ' + esc2(String(p.area)) + ' km²<br/>';
+    if (p.hmed) html += 'Altura media: ' + esc2(String(p.hmed)) + ' m';
     return html;
   }
   const z = iptZonaDe(p);

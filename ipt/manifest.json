@@ -140,6 +140,27 @@
    "auto": false
   },
   {
+   "id": "glaciares_rocosos",
+   "nombre": "Glaciares de roca (SERNAGEOMIN)",
+   "bbox": [
+    -73.0849,
+    -54.9882,
+    -67.6134,
+    -17.661
+   ],
+   "grupos": [
+    {
+     "g": "GLR",
+     "archivo": "glaciares_rocosos_GLR.json",
+     "n": 3598
+    }
+   ],
+   "n": 3598,
+   "generado": "2026-08-27",
+   "auto": false,
+   "fuente": "SERNAGEOMIN — Inventario Público de Glaciares 2022"
+  },
+  {
    "id": "zona_morfoclimatica",
    "nombre": "Zonificación morfoclimática (SERNAGEOMIN/DGA)",
    "bbox": [
