@@ -1,5 +1,7 @@
 # Ingreso de Remociones en Masa
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23196806.svg)](https://doi.org/10.5281/zenodo.23196806)
+
 Aplicación web instalable (PWA) para el catastro de remociones en masa en terreno, con exportación a KMZ, informe .docx y respaldo JSON.
 
 **Publicado:** https://cvenegas-sernageomin.github.io/remociones-en-masa/
@@ -14,4 +16,4 @@ Los Puntos Críticos de SENAPRED y demás capas institucionales conservan las co
 
 Cita sugerida:
 
-> SERNAGEOMIN / Venegas Benavides, C. (2026). Ingreso de Remociones en Masa [aplicación web]. https://cvenegas-sernageomin.github.io/remociones-en-masa/
+> SERNAGEOMIN / Venegas Benavides, C. (2026). Ingreso de Remociones en Masa [aplicación web]. https://cvenegas-sernageomin.github.io/remociones-en-masa/ · DOI: https://doi.org/10.5281/zenodo.23196806

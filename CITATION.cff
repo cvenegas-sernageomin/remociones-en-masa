@@ -8,6 +8,7 @@ authors:
     given-names: "Carlos"
     affiliation: "Servicio Nacional de Geología y Minería (SERNAGEOMIN)"
 date-released: 2026-10-06
+doi: 10.5281/zenodo.23196806
 license: CC-BY-NC-4.0
 url: "https://cvenegas-sernageomin.github.io/remociones-en-masa/"
 repository-code: "https://github.com/cvenegas-sernageomin/remociones-en-masa"
