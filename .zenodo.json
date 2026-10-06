@@ -1,0 +1,31 @@
+{
+  "upload_type": "software",
+  "title": "Ingreso de Remociones en Masa",
+  "description": "<p>Aplicación web instalable (PWA) para el catastro de remociones en masa en terreno, con exportación a KMZ, informe .docx y respaldo JSON.</p><p>Publicado en https://cvenegas-sernageomin.github.io/remociones-en-masa/</p><p>La licencia CC BY-NC 4.0 cubre el trabajo original de los autores. No cubre el material de terceros:</p><ul><li>Los Puntos Críticos de SENAPRED y demás capas institucionales conservan las condiciones de uso de sus instituciones de origen.</li><li>Las librerías de terceros incluidas (por ejemplo en vendor/) conservan sus propias licencias.</li></ul>",
+  "creators": [
+    {
+      "name": "Servicio Nacional de Geología y Minería (SERNAGEOMIN)"
+    },
+    {
+      "name": "Venegas Benavides, Carlos",
+      "affiliation": "Servicio Nacional de Geología y Minería (SERNAGEOMIN)"
+    }
+  ],
+  "license": "cc-by-nc-4.0",
+  "access_right": "open",
+  "language": "spa",
+  "keywords": [
+    "remociones en masa",
+    "peligros geológicos",
+    "catastro",
+    "PWA",
+    "SERNAGEOMIN"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://cvenegas-sernageomin.github.io/remociones-en-masa/",
+      "relation": "isDocumentedBy",
+      "resource_type": "other"
+    }
+  ]
+}
